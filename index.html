@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>Stopovačka – Příprava & vyhodnocení hry</title>
+
+  <!-- Leaflet 1.9.4 z unpkg -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- ArUco a CV knihovny -->
+  <script src="js/vendor/cv.js"></script>
+  <script src="js/vendor/aruco.js"></script>
+
+  <!-- Styly aplikace -->
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- Dynamický tiskový styl pro @page (vkládá a aktualizuje app.js) -->
+  <style id="print-page-style">
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Záhlaví aplikace -->
+  <header class="app-header">
+    <div class="header-content">
+      <div class="brand">
+        <h1>Stopovačka</h1>
+        <span class="subtitle">Příprava hry &amp; tisk archů</span>
+      </div>
+      <div id="project-status-badge" class="badge-status"></div>
+    </div>
+  </header>
+
+  <!-- Navigační záložky -->
+  <nav class="app-nav">
+    <ul class="nav-tabs" role="tablist">
+      <li><button type="button" class="nav-tab-btn active" data-tab="tab-project">1. Projekt</button></li>
+      <li><button type="button" class="nav-tab-btn" data-tab="tab-map">2. Mapa</button></li>
+      <li><button type="button" class="nav-tab-btn" data-tab="tab-print">3. Tisk</button></li>
+      <li><button type="button" class="nav-tab-btn" data-tab="tab-game">4. Hra &amp; GPX</button></li>
+      <li><button type="button" class="nav-tab-btn" data-tab="tab-evaluate">5. Vyhodnocení</button></li>
+    </ul>
+  </nav>
+
+  <!-- Hlavní obsah -->
+  <main class="app-main">
+
+    <!-- 1. ZÁLOŽKA: PROJEKT -->
+    <section id="tab-project" class="tab-pane active">
+      <div class="card">
+        <h2 class="card-title">Základní nastavení hry</h2>
+        <p class="card-desc">Nastavte název hry, formát papíru a 4 soutěžní týmy.</p>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="project-name">Název hry</label>
+            <input type="text" id="project-name" class="form-control" placeholder="např. Jarní stopovačka 2026" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="paper-format">Formát archu</label>
+            <select id="paper-format" class="form-control">
+              <option value="A4">A4 (210 × 297 mm)</option>
+              <option value="A3">A3 (297 × 420 mm)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="paper-orientation">Orientace papíru</label>
+            <select id="paper-orientation" class="form-control">
+              <option value="portrait">Na výšku (portrait)</option>
+              <option value="landscape">Na šířku (landscape)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Soutěžní týmy (4)</h2>
+        <p class="card-desc">Každý tým dostane vytištěný arch a fixou své barvy ho zakreslují ostatní týmy.</p>
+        <div id="teams-container" class="teams-list"></div>
+      </div>
+    </section>
+
+    <!-- 2. ZÁLOŽKA: MAPA -->
+    <section id="tab-map" class="tab-pane">
+      <div class="card">
+        <h2 class="card-title">Podkladová mapa</h2>
+        <p class="card-desc">Vyberte výřez online dlaždicové mapy nebo nahrajte vlastní obrázek s vlícovacími body.</p>
+
+        <div class="segmented-control" role="group">
+          <button type="button" id="btn-map-mode-tiles" class="segmented-btn active">Dlaždicová online mapa</button>
+          <button type="button" id="btn-map-mode-image" class="segmented-btn">Vlastní obrázek (sken / foto)</button>
+        </div>
+
+        <!-- Režim 1: Dlaždice -->
+        <div id="map-mode-tiles-section">
+          <div id="map-picker-mount" style="width:100%; height:460px;"></div>
+          <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <button type="button" id="btn-save-tile-extent" class="btn btn-primary">Uložit tento výřez pro tisk</button>
+            <span id="tile-status-msg" style="font-size:13px; color:var(--text-muted);"></span>
+          </div>
+        </div>
+
+        <!-- Režim 2: Vlastní obrázek -->
+        <div id="map-mode-image-section" style="display:none;">
+          <div style="margin-bottom:16px;">
+            <label class="btn btn-secondary" style="cursor:pointer;">
+              📁 Nahrát obrázek mapy
+              <input type="file" id="map-image-file-input" accept="image/*" style="display:none;" />
+            </label>
+            <span id="map-image-name" style="margin-left:12px; font-size:14px; color:var(--text-muted);">Soubor nevybrán</span>
+          </div>
+
+          <div id="image-georef-container" style="display:none;">
+            <div class="alert alert-info">
+              💡 <strong>Návod:</strong> Klepněte do obrázku na známý bod a zadejte jeho GPS souřadnice (např. <code>49.1234, 16.5678</code> nebo z mapy.cz). Potřeba jsou alespoň 2 body (ideálně 3–5).
+            </div>
+
+            <div id="image-wrap" class="image-annotate-wrap">
+              <img id="annotate-img" class="image-annotate-img" alt="Mapa k vlícování" />
+              <div id="image-markers-layer"></div>
+            </div>
+
+            <div style="margin-top:16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <h3 style="font-size:15px; font-weight:700;">Vlícovací body</h3>
+                <span id="rms-display" style="font-size:13px; font-weight:600; color:var(--primary);"></span>
+              </div>
+              <div style="overflow-x:auto;">
+                <table class="points-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Obraz [u, v]</th>
+                      <th>GPS (WGS-84)</th>
+                      <th>Odchylka</th>
+                      <th style="width:40px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="points-tbody"></tbody>
+                </table>
+              </div>
+              <div style="margin-top:10px;">
+                <button type="button" id="btn-clear-points" class="btn btn-danger btn-sm">Smazat všechny body</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. ZÁLOŽKA: TISK -->
+    <section id="tab-print" class="tab-pane">
+      <div class="card">
+        <h2 class="card-title">Předtiskový náhled archů</h2>
+        <p class="card-desc">Zkontrolujte archy všech 4 týmů. Všechny značky, mapové pole i kalibrační pole jsou přesně rozvrženy v mm.</p>
+
+        <div class="print-actions">
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            <button type="button" class="btn btn-secondary btn-sm preview-team-tab active" data-team="all">Všechny archy</button>
+            <button type="button" class="btn btn-secondary btn-sm preview-team-tab" data-team="0">Tým 1</button>
+            <button type="button" class="btn btn-secondary btn-sm preview-team-tab" data-team="1">Tým 2</button>
+            <button type="button" class="btn btn-secondary btn-sm preview-team-tab" data-team="2">Tým 3</button>
+            <button type="button" class="btn btn-secondary btn-sm preview-team-tab" data-team="3">Tým 4</button>
+          </div>
+          <button type="button" id="btn-print-sheets" class="btn btn-primary">🖨️ Vytisknout archy</button>
+        </div>
+
+        <div id="print-alert" class="alert alert-warning" style="display:none;"></div>
+
+        <!-- Interaktivní náhled zmenšených archů na obrazovce -->
+        <div id="preview-container" class="preview-container"></div>
+      </div>
+    </section>
+
+    <!-- 4. ZÁLOŽKA: HRA & GPX -->
+    <section id="tab-game" class="tab-pane">
+      <div class="card">
+        <h2 class="card-title">Časový interval hry</h2>
+        <p class="card-desc">Čas začátku a konce hry pro oříznutí nahraných GPX tras na skutečný průběh hry.</p>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="game-start-time">Začátek hry</label>
+            <input type="datetime-local" id="game-start-time" class="form-control" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="game-end-time">Konec hry</label>
+            <input type="datetime-local" id="game-end-time" class="form-control" />
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">GPX záznamy skutečných tras</h2>
+        <p class="card-desc">Po skončení hry nahrajte GPX záznam trackování z mapy.cz nebo sportovních hodinek pro každý tým.</p>
+        <div id="gpx-teams-container" class="teams-list"></div>
+      </div>
+    </section>
+
+    <!-- 5. ZÁLOŽKA: VYHODNOCENÍ -->
+    <section id="tab-evaluate" class="tab-pane">
+      <div class="card">
+        <h2 class="card-title">5. Vyhodnocení hry</h2>
+        <!-- TODO: Vyhodnocovací UI napíše jiný agent / koordinátor v js/ui/evaluate.js -->
+        <div id="evaluate-mount">
+          <div class="alert alert-info" style="margin-top:12px;">
+            ℹ️ <strong>Vyhodnocovací modul:</strong> Čeká se na načtení <code>js/ui/evaluate.js</code>. Vyhodnocovací rozhraní umožní vyfotit telefonem narovnané archy, detekovat fixy a spočítat skóre týmů.
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Skrytý tiskový kontejner - pro @media print obsahuje všechny vygenerované archy -->
+  <div id="print-container"></div>
+
+  <!-- Modální dialog pro zadání GPS souřadnic bodu -->
+  <div id="point-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">Zadat souřadnice bodu</div>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">
+        Zadejte GPS souřadnice klepnutého místa na mapě (např. z mapy.cz).
+      </p>
+      <div class="form-group">
+        <label class="form-label" for="modal-coord-input">Souřadnice (WGS-84)</label>
+        <input type="text" id="modal-coord-input" class="form-control" placeholder="např. 49.1234N, 16.5678E nebo 48°57.072'N 19°4.272'E" autofocus />
+        <span id="modal-coord-error" style="color:var(--danger); font-size:12px; margin-top:4px; display:none;"></span>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btn-modal-cancel" class="btn btn-secondary btn-sm">Zrušit</button>
+        <button type="button" id="btn-modal-save" class="btn btn-primary btn-sm">Uložit bod</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hlavní aplikační skript -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

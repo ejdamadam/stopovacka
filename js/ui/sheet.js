@@ -1,0 +1,191 @@
+// js/ui/sheet.js
+// Vykreslení tištěného archu hry pro jeden tým.
+// Všechny rozměry a pozice jsou v milimetrech (mm) podle layoutu.
+
+import { layoutForProject, foreignTeams, calibSampleRect, markerIdsForTeam } from '../core/layout.js';
+import { markerSvg } from '../core/markers.js';
+import { makeGeoref, mapExtentMeters } from '../core/geo.js';
+
+// Re-export pro vyhodnocovací modul a ostatní UI části
+export { foreignTeams };
+
+/**
+ * Escapování HTML entit pro bezpečné vložení textů do šablony.
+ */
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Dosazení parametrů do šablony URL dlaždice (např. {z}, {x}, {y}, {s}).
+ */
+function formatTileUrl(template, x, y, z) {
+  if (!template) return '';
+  const subdomains = ['a', 'b', 'c'];
+  const s = subdomains[Math.abs(x + y) % subdomains.length];
+  return template
+    .replace(/\{s\}/g, s)
+    .replace(/\{z\}/g, String(z))
+    .replace(/\{x\}/g, String(x))
+    .replace(/\{y\}/g, String(y));
+}
+
+/**
+ * Výpočet vhodné „zaokrouhlené“ délky měřítka v metrech (1, 2, 5 × 10^k).
+ */
+function niceBarLength(widthM) {
+  const target = Math.max(10, widthM * 0.22);
+  const exp = Math.pow(10, Math.floor(Math.log10(target)));
+  const frac = target / exp;
+  let mult = 1;
+  if (frac >= 5) mult = 5;
+  else if (frac >= 2) mult = 2;
+  else mult = 1;
+  return mult * exp;
+}
+
+/**
+ * Vykreslí HTML jednoho tištěného archu (A4/A3) v mm pro zadaný index týmu.
+ * @param {object} project Projekt hry (name, teams, paper, orientation, map, ...)
+ * @param {number} teamIdx Index týmu (0..teams.length-1)
+ * @returns {string} HTML řetězec archu
+ */
+export function renderSheetHtml(project, teamIdx) {
+  const teams = project.teams || [];
+  const team = teams[teamIdx] || { name: `Tým ${teamIdx + 1}`, color: '#000000' };
+  const layout = layoutForProject(project);
+
+  // 1. ArUco značky (4 rohy: TL, TR, BR, BL)
+  const markerIds = markerIdsForTeam(teamIdx);
+  const markersHtml = layout.markers.map((m, i) => {
+    const id = markerIds[i];
+    const svg = markerSvg(id, m.size);
+    return `<div class="sheet-marker sheet-marker-${m.corner.toLowerCase()}" style="position:absolute; left:${m.x}mm; top:${m.y}mm; width:${m.size}mm; height:${m.size}mm; line-height:0; pointer-events:none;">${svg}</div>`;
+  }).join('\n');
+
+  // 2. Hlavička archu (mezi horními značkami)
+  const header = layout.header;
+  const headerHtml = `
+    <div class="sheet-header" style="position:absolute; left:${header.x}mm; top:${header.y}mm; width:${header.w}mm; height:${header.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; box-sizing:border-box; padding:0 2mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+      <div style="font-size:4.8mm; font-weight:700; line-height:1.2; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
+        Arch týmu: <span style="text-decoration:underline; text-underline-offset:1mm;">${escapeHtml(team.name)}</span>
+      </div>
+      <div style="font-size:2.6mm; color:#444; margin-top:0.8mm; line-height:1.2;">
+        Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou).
+      </div>
+    </div>`;
+
+  // 3. Mapové pole (šedotónová mapa, měřítko, atribuce)
+  const mapRect = layout.mapRect;
+  let mapContentHtml = '';
+  let scaleBarHtml = '';
+  let attributionHtml = '';
+
+  if (project.map && project.map.kind === 'tiles' && project.map.georef) {
+    const { z, px0, py0, px1, py1 } = project.map.georef;
+    const totalW = px1 - px0;
+    const totalH = py1 - py0;
+
+    if (totalW > 0 && totalH > 0) {
+      const tileX0 = Math.floor(px0 / 256);
+      const tileX1 = Math.floor((px1 - 1) / 256);
+      const tileY0 = Math.floor(py0 / 256);
+      const tileY1 = Math.floor((py1 - 1) / 256);
+
+      let tiles = '';
+      for (let ty = tileY0; ty <= tileY1; ty++) {
+        for (let tx = tileX0; tx <= tileX1; tx++) {
+          const leftPct = ((tx * 256 - px0) / totalW) * 100;
+          const topPct = ((ty * 256 - py0) / totalH) * 100;
+          const widthPct = (256 / totalW) * 100;
+          const heightPct = (256 / totalH) * 100;
+          const url = formatTileUrl(project.map.tileUrl, tx, ty, z);
+          tiles += `<img src="${escapeHtml(url)}" alt="" style="position:absolute; left:${leftPct.toFixed(4)}%; top:${topPct.toFixed(4)}%; width:${widthPct.toFixed(4)}%; height:${heightPct.toFixed(4)}%; display:block; pointer-events:none;" crossorigin="anonymous" />`;
+        }
+      }
+      mapContentHtml = tiles;
+    }
+  } else if (project.map && project.map.kind === 'image' && project.map.imageDataUrl) {
+    mapContentHtml = `<img src="${escapeHtml(project.map.imageDataUrl)}" alt="Mapa" style="position:absolute; left:0; top:0; width:100%; height:100%; object-fit:fill; display:block;" />`;
+  } else {
+    mapContentHtml = `<div style="display:flex; width:100%; height:100%; align-items:center; justify-content:center; color:#888; font-family:sans-serif; font-size:4mm;">(Mapa zatím nebyla nastavena)</div>`;
+  }
+
+  // Měřítko mapy
+  if (project.map && project.map.georef) {
+    try {
+      const georef = makeGeoref(project.map.georef);
+      const extent = mapExtentMeters(georef);
+      if (extent.widthM > 0 && mapRect.w > 0) {
+        const paperM = mapRect.w / 1000;
+        const scaleNum = Math.round(extent.widthM / paperM);
+        const barM = niceBarLength(extent.widthM);
+        const barMm = (barM / extent.widthM) * mapRect.w;
+        const barLabel = barM >= 1000
+          ? `${(barM / 1000).toFixed(barM % 1000 === 0 ? 0 : 1)} km`
+          : `${Math.round(barM)} m`;
+        const scaleText = `1 : ${scaleNum.toLocaleString('cs-CZ')}`;
+
+        scaleBarHtml = `
+          <div class="sheet-scalebar" style="position:absolute; left:2mm; bottom:2mm; background:rgba(255,255,255,0.88); padding:0.8mm 1.6mm; border:0.2mm solid #444; border-radius:0.4mm; font-family:sans-serif; line-height:1.2; text-align:center; z-index:10;">
+            <div style="font-size:2.2mm; font-weight:700; color:#111; margin-bottom:0.6mm;">${scaleText}</div>
+            <div style="display:flex; justify-content:space-between; width:${barMm.toFixed(2)}mm; font-size:1.8mm; color:#222;">
+              <span>0</span>
+              <span>${barLabel}</span>
+            </div>
+            <div style="width:${barMm.toFixed(2)}mm; height:0.9mm; background:#000; border:0.15mm solid #000; margin-top:0.4mm;"></div>
+          </div>`;
+      }
+    } catch (e) {
+      // Georeference není kompletní, měřítko přeskočíme
+    }
+  }
+
+  // Atribuce mapy
+  if (project.map && project.map.attribution) {
+    attributionHtml = `
+      <div class="sheet-attribution" style="position:absolute; right:2mm; bottom:2mm; background:rgba(255,255,255,0.85); padding:0.6mm 1.4mm; border-radius:0.4mm; font-family:sans-serif; font-size:1.7mm; color:#222; max-width:65%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; z-index:10;">
+        ${escapeHtml(project.map.attribution)}
+      </div>`;
+  }
+
+  const mapRectHtml = `
+    <div class="sheet-map-box" style="position:absolute; left:${mapRect.x}mm; top:${mapRect.y}mm; width:${mapRect.w}mm; height:${mapRect.h}mm; box-sizing:border-box; border:0.25mm solid #000; overflow:hidden; background:#f0f0f0;">
+      <div class="sheet-map-content" style="position:absolute; left:0; top:0; width:100%; height:100%; filter:grayscale(1) contrast(.85) brightness(1.08); overflow:hidden;">
+        ${mapContentHtml}
+      </div>
+      ${scaleBarHtml}
+      ${attributionHtml}
+    </div>`;
+
+  // 4. Kalibrační pole pro cizí týmy (dolní pás)
+  const foreignIdxs = foreignTeams(teams.length, teamIdx);
+  const calibHtml = foreignIdxs.map((otherIdx, i) => {
+    const box = layout.calib[i];
+    if (!box) return '';
+    const otherTeam = teams[otherIdx] || { name: `Tým ${otherIdx + 1}` };
+    const labelH = box.h * 0.32; // podle calibSampleRect
+
+    return `
+      <div class="sheet-calib" style="position:absolute; left:${box.x}mm; top:${box.y}mm; width:${box.w}mm; height:${box.h}mm; box-sizing:border-box; border:0.25mm solid #000; background:#ffffff; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="height:${labelH}mm; box-sizing:border-box; padding:0.4mm 1mm; font-size:2.2mm; line-height:1.15; font-weight:700; text-align:center; border-bottom:0.18mm solid #bbb; display:flex; align-items:center; justify-content:center; background:#f4f4f4; color:#111;">
+          Tým ${escapeHtml(otherTeam.name)}: sem tlustě čáru fixou
+        </div>
+      </div>`;
+  }).join('\n');
+
+  // Kontejner archu (přesné rozměry v mm, připraveno pro tisk)
+  return `
+<div class="sheet" style="position:relative; width:${layout.w}mm; height:${layout.h}mm; box-sizing:border-box; background:#ffffff; overflow:hidden; page-break-after:always; break-after:page;">
+  ${markersHtml}
+  ${headerHtml}
+  ${mapRectHtml}
+  ${calibHtml}
+</div>`.trim();
+}
