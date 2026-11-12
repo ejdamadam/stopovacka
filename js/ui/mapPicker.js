@@ -70,9 +70,16 @@ export function openMapPicker(container, opts = {}) {
               ${TILE_PRESETS.map(p => `<option value="${p.id}" ${p.url === currentTileUrl ? 'selected' : ''}>${p.name}</option>`).join('')}
             </select>
           </label>
+          <div style="display:flex; align-items:center; gap:5px; background:#fff; border:1px solid #bbb; border-radius:4px; padding:3px 6px;">
+            <span style="font-weight:600; font-size:13px; color:#333;">Zoom:</span>
+            <button type="button" class="btn-fine-zoom-out" style="width:24px; height:24px; border:1px solid #ccc; border-radius:3px; background:#f4f4f4; cursor:pointer; font-weight:bold; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; user-select:none;" title="Jemné oddálení (−0.25)">−</button>
+            <span class="map-picker-current-zoom" style="font-size:13px; font-weight:700; color:#1a73e8; min-width:32px; text-align:center;">${initZoom.toFixed(1)}</span>
+            <button type="button" class="btn-fine-zoom-in" style="width:24px; height:24px; border:1px solid #ccc; border-radius:3px; background:#f4f4f4; cursor:pointer; font-weight:bold; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; user-select:none;" title="Jemné přiblížení (+0.25)">+</button>
+          </div>
           <label style="display:flex; align-items:center; gap:6px;">
-            <span style="font-weight:600; font-size:13px; color:#333;">Tiskový zoom:</span>
-            <select class="map-picker-zoom-select" style="padding:4px 8px; border:1px solid #bbb; border-radius:4px; background:#fff; font-size:13px;">
+            <span style="font-weight:600; font-size:13px; color:#333;">Tiskový detail:</span>
+            <select class="map-picker-zoom-select" style="padding:4px 8px; border:1px solid #bbb; border-radius:4px; background:#fff; font-size:13px;" title="Rozlišení dlaždic pro tisk">
+              <option value="auto">Auto (podle zoomu)</option>
               <option value="13" ${currentPrintZoom === 13 ? 'selected' : ''}>13 (velké území)</option>
               <option value="14" ${currentPrintZoom === 14 ? 'selected' : ''}>14</option>
               <option value="15" ${currentPrintZoom === 15 ? 'selected' : ''}>15 (doporučeno)</option>
@@ -111,6 +118,9 @@ export function openMapPicker(container, opts = {}) {
   const zoomSelect = container.querySelector('.map-picker-zoom-select');
   const scaleEl = container.querySelector('.map-picker-scale');
   const extentEl = container.querySelector('.map-picker-extent');
+  const currentZoomEl = container.querySelector('.map-picker-current-zoom');
+  const btnFineZoomOut = container.querySelector('.btn-fine-zoom-out');
+  const btnFineZoomIn = container.querySelector('.btn-fine-zoom-in');
 
   // Výchozí souřadnice středu
   let initLat = 49.8;
@@ -128,13 +138,32 @@ export function openMapPicker(container, opts = {}) {
     }
   }
 
-  // Inicializace Leaflet mapy
+  // Inicializace Leaflet mapy s jemným plynulým zoomováním (krok 0.1/0.25 místo celých čísel)
   const map = L.map(mapEl, {
     center: [initLat, initLon],
     zoom: initZoom,
+    zoomSnap: 0.1,             // Jemný krok pro plynulý posun měřítka
+    zoomDelta: 0.25,           // Tlačítka +/- krokují po 0.25
+    wheelPxPerZoomLevel: 120,  // Plynulejší zoomování kolečkem myši / trackpadem
     zoomControl: true,
-    attributionControl: false // vlastní atribuce v panelu a archu
+    attributionControl: false  // vlastní atribuce v panelu a archu
   });
+
+  if (btnFineZoomOut) {
+    btnFineZoomOut.addEventListener('click', (e) => {
+      e.preventDefault();
+      const nextZoom = Math.max(1, Math.round((map.getZoom() - 0.25) * 10) / 10);
+      map.setZoom(nextZoom);
+    });
+  }
+
+  if (btnFineZoomIn) {
+    btnFineZoomIn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const nextZoom = Math.min(19, Math.round((map.getZoom() + 0.25) * 10) / 10);
+      map.setZoom(nextZoom);
+    });
+  }
 
   let currentTileLayer = null;
 
@@ -186,7 +215,13 @@ export function openMapPicker(container, opts = {}) {
    * Spočítá georeferenci výřezu pro zvolený tiskový zoom.
    */
   function getGeoref(z = currentPrintZoom) {
-    const zoomVal = Number(z) || currentPrintZoom;
+    let zoomVal;
+    if (z === 'auto' || currentPrintZoom === 'auto') {
+      zoomVal = Math.max(12, Math.min(18, Math.round(map.getZoom())));
+    } else {
+      zoomVal = Number(z) || Number(currentPrintZoom) || 15;
+    }
+
     const nw = map.containerPointToLatLng(L.point(box.left, box.top));
     const se = map.containerPointToLatLng(L.point(box.left + box.width, box.top + box.height));
 
@@ -202,6 +237,10 @@ export function openMapPicker(container, opts = {}) {
   }
 
   function updateInfo() {
+    if (currentZoomEl && map) {
+      currentZoomEl.textContent = map.getZoom().toFixed(1);
+    }
+
     const georef = getGeoref(currentPrintZoom);
     try {
       const geo = makeGeoref(georef);
@@ -240,7 +279,7 @@ export function openMapPicker(container, opts = {}) {
   });
 
   zoomSelect.addEventListener('change', (e) => {
-    currentPrintZoom = Number(e.target.value) || 15;
+    currentPrintZoom = e.target.value === 'auto' ? 'auto' : (Number(e.target.value) || 15);
     updateInfo();
   });
 
