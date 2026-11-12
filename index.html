@@ -127,8 +127,17 @@
       </div>
 
       <div class="card">
-        <h2 class="card-title">Soutěžní týmy (4)</h2>
-        <p class="card-desc">Každý tým dostane vytištěný arch a fixou své barvy ho zakreslují ostatní týmy.</p>
+        <h2 class="card-title">Soutěžní týmy</h2>
+        <p class="card-desc">Zadejte názvy soutěžních týmů. Každý tým dostane vytištěný arch se svým jménem v záhlaví.</p>
+
+        <div class="alert alert-info" style="margin-bottom:14px; font-size:13px; line-height:1.45;">
+          💡 <strong>Barvy fix nemusíte znát předem:</strong><br>
+          V terénu mohou týmy kreslit <strong>jakýmikoliv barevnými fixami</strong>, které máte v oddíle či batohu (červená, modrá, zelená, fialová, oranžová, hnědá...).<br>
+          • <strong>Jediná pravidla:</strong> Nekreslit černou ani šedou (aby čára nesplývala s mapou) a pro každý cizí tým použít jinou barvu.<br>
+          • <strong>Automatická kalibrace:</strong> Každý tým dole na svém archu udělá zkušební čáru do rámečku daného týmu. Aplikace si barvu sama změří z fotky!<br>
+          • <em>Barvy v následujícím seznamu slouží pouze jako orientační barvy pro přehlednost v grafech a tabulce výsledků.</em>
+        </div>
+
         <div id="teams-container" class="teams-list"></div>
       </div>
     </section>
@@ -207,15 +216,21 @@
         <h2 class="card-title">Předtiskový náhled archů</h2>
         <p class="card-desc">Zkontrolujte archy všech 4 týmů. Všechny značky, mapové pole i kalibrační pole jsou přesně rozvrženy v mm.</p>
 
-        <div class="print-actions">
-          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+        <div class="print-actions" style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
+          <div id="print-team-tabs" style="display:flex; flex-wrap:wrap; gap:8px;">
             <button type="button" class="btn btn-secondary btn-sm preview-team-tab active" data-team="all">Všechny archy</button>
             <button type="button" class="btn btn-secondary btn-sm preview-team-tab" data-team="0">Tým 1</button>
             <button type="button" class="btn btn-secondary btn-sm preview-team-tab" data-team="1">Tým 2</button>
             <button type="button" class="btn btn-secondary btn-sm preview-team-tab" data-team="2">Tým 3</button>
             <button type="button" class="btn btn-secondary btn-sm preview-team-tab" data-team="3">Tým 4</button>
           </div>
-          <button type="button" id="btn-print-sheets" class="btn btn-primary">🖨️ Vytisknout archy</button>
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            <button type="button" id="btn-print-sheets" class="btn btn-primary">🖨️ Vytisknout všechny archy (4 strany)</button>
+          </div>
+        </div>
+
+        <div class="alert alert-info" style="margin-bottom:16px; font-size:13px; line-height:1.45;">
+          💡 <strong>Tip pro bezproblémový tisk na A4:</strong> V tiskovém dialogu prohlížeče zkontrolujte: <strong>Okraje: Žádné</strong> (nebo Minimální) a <strong>Měřítko: 100 %</strong> (případně Přizpůsobit stránce). Každý arch se tak přesně vejde na 1 list papíru bez přetečení a prázdných stránek.
         </div>
 
         <div id="print-alert" class="alert alert-warning" style="display:none;"></div>

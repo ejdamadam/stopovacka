@@ -149,15 +149,24 @@ export function computeLayout({ paper = 'A4', orientation = 'portrait', mapAspec
     // Rozdělíme calibCount mezi levou a pravou část od BC
     const leftCount = Math.ceil(calibCount / 2);
     const rightCount = calibCount - leftCount;
+    const maxPerSide = Math.max(leftCount, rightCount, 1);
 
-    const lbw = (leftW - gap * (leftCount - 1)) / leftCount;
+    // Všechna kalibrační pole mají stejnou jednotnou šířku bw podle strany s více poli
+    const bw = (leftW - gap * (maxPerSide - 1)) / maxPerSide;
+
+    // Levá polovina: pole vycentrovaná v prostoru leftW
+    const leftSpan = leftCount * bw + (leftCount - 1) * gap;
+    const leftX0 = (margin + s + quiet) + (leftW - leftSpan) / 2;
     for (let i = 0; i < leftCount; i++) {
-      calib.push({ x: margin + s + quiet + i * (lbw + gap), y: h - margin - s, w: lbw, h: s });
+      calib.push({ x: leftX0 + i * (bw + gap), y: h - margin - s, w: bw, h: s });
     }
+
+    // Pravá polovina: pole vycentrovaná v prostoru rightW (stejná šířka bw jako vlevo!)
     if (rightCount > 0) {
-      const rbw = (rightW - gap * (rightCount - 1)) / rightCount;
+      const rightSpan = rightCount * bw + (rightCount - 1) * gap;
+      const rightX0 = (bcX + s + quiet) + (rightW - rightSpan) / 2;
       for (let i = 0; i < rightCount; i++) {
-        calib.push({ x: bcX + s + quiet + i * (rbw + gap), y: h - margin - s, w: rbw, h: s });
+        calib.push({ x: rightX0 + i * (bw + gap), y: h - margin - s, w: bw, h: s });
       }
     }
   } else {

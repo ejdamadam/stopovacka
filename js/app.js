@@ -16,10 +16,10 @@ function createDefaultProject() {
     version: 1,
     name: 'Jarní stopovačka 2026',
     teams: [
-      { name: 'Červení', color: '#e53935' },
-      { name: 'Modří', color: '#1e88e5' },
-      { name: 'Zelení', color: '#43a047' },
-      { name: 'Žlutí', color: '#fbc02d' }
+      { name: 'Tým 1', color: '#e53935' },
+      { name: 'Tým 2', color: '#1e88e5' },
+      { name: 'Tým 3', color: '#43a047' },
+      { name: 'Tým 4', color: '#e67e22' }
     ],
     paper: 'A4',
     orientation: 'portrait',
@@ -363,13 +363,14 @@ function renderTeamsList(container) {
     nameInput.addEventListener('input', () => {
       team.name = nameInput.value.trim() || `Tým ${idx + 1}`;
       saveProject(project);
+      updatePrintTeamTabs();
     });
 
     const colorInput = document.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'team-color-picker';
     colorInput.value = team.color;
-    colorInput.title = 'Barva fixy týmu';
+    colorInput.title = 'Orientační barva v grafech (fixy v terénu mohou mít libovolnou jinou barvu)';
     colorInput.addEventListener('input', () => {
       team.color = colorInput.value;
       badge.style.backgroundColor = team.color;
@@ -678,57 +679,122 @@ function initCustomImageGeoref() {
 // -------------------------------------------------------------
 let selectedPreviewTeam = 'all';
 
-function initStep3Print() {
-  const btnPrint = document.getElementById('btn-print-sheets');
-  const teamTabs = document.querySelectorAll('.preview-team-tab');
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  btnPrint.addEventListener('click', () => {
-    updateDynamicPrintStyle();
-    renderAllSheetsToPrintContainer();
-    window.print();
+function updatePrintTeamTabs() {
+  const container = document.getElementById('print-team-tabs');
+  if (!container) return;
+
+  const teams = project.teams || [];
+  let html = `<button type="button" class="btn btn-secondary btn-sm preview-team-tab ${selectedPreviewTeam === 'all' ? 'active' : ''}" data-team="all">Všechny archy</button>`;
+  teams.forEach((t, i) => {
+    const isAct = String(i) === selectedPreviewTeam;
+    html += `<button type="button" class="btn btn-secondary btn-sm preview-team-tab ${isAct ? 'active' : ''}" data-team="${i}">${escapeHtml(t.name || `Tým ${i + 1}`)}</button>`;
   });
+  container.innerHTML = html;
 
-  teamTabs.forEach(btn => {
+  container.querySelectorAll('.preview-team-tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      teamTabs.forEach(b => b.classList.remove('active'));
+      container.querySelectorAll('.preview-team-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       selectedPreviewTeam = btn.getAttribute('data-team');
+      updatePrintButtonLabel();
       updatePrintPreview();
     });
   });
+
+  updatePrintButtonLabel();
+}
+
+function updatePrintButtonLabel() {
+  const btnPrint = document.getElementById('btn-print-sheets');
+  if (!btnPrint) return;
+  const count = project.teams ? project.teams.length : 4;
+
+  if (selectedPreviewTeam === 'all') {
+    btnPrint.textContent = `🖨️ Vytisknout všechny archy (${count} ${count >= 5 ? 'stran' : (count >= 2 ? 'strany' : 'strana')})`;
+  } else {
+    const idx = Number(selectedPreviewTeam);
+    const team = project.teams && project.teams[idx] ? project.teams[idx].name : `Tým ${idx + 1}`;
+    btnPrint.textContent = `🖨️ Vytisknout jen arch: ${team} (1 strana)`;
+  }
+}
+
+function initStep3Print() {
+  const btnPrint = document.getElementById('btn-print-sheets');
+  if (btnPrint) {
+    btnPrint.addEventListener('click', () => {
+      updateDynamicPrintStyle();
+      renderSheetsToPrintContainer(selectedPreviewTeam);
+      window.print();
+    });
+  }
+
+  updatePrintTeamTabs();
 }
 
 function updateDynamicPrintStyle() {
   const styleEl = document.getElementById('print-page-style');
   const paper = project.paper || 'A4';
   const orientation = project.orientation || 'portrait';
+  const layout = layoutForProject(project);
+  // Bezpečná výška o 2 mm menší než fyzický papír (např. 295 mm pro A4), která zabraňuje zaokrouhlovací chybě a přetečení na prázdnou 2. stránku
+  const safeH = Math.max(100, layout.h - 2);
+  const safeW = layout.w;
   if (styleEl) {
     styleEl.textContent = `
       @media print {
         @page {
           size: ${paper} ${orientation};
-          margin: 0;
+          margin: 0 !important;
+        }
+        .sheet {
+          width: ${safeW}mm !important;
+          height: ${safeH}mm !important;
+          max-height: ${safeH}mm !important;
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+          overflow: hidden !important;
+        }
+        .sheet:last-child {
+          page-break-after: avoid !important;
+          break-after: avoid !important;
         }
       }
     `;
   }
 }
 
-function renderAllSheetsToPrintContainer() {
+function renderSheetsToPrintContainer(targetTeam = 'all') {
   const printContainer = document.getElementById('print-container');
   if (!printContainer) return;
 
-  const count = project.teams.length;
+  const count = project.teams ? project.teams.length : 0;
   let html = '';
-  for (let i = 0; i < count; i++) {
-    html += renderSheetHtml(project, i) + '\n';
+  if (targetTeam === 'all') {
+    for (let i = 0; i < count; i++) {
+      html += renderSheetHtml(project, i) + '\n';
+    }
+  } else {
+    const idx = Number(targetTeam);
+    if (idx >= 0 && idx < count) {
+      html = renderSheetHtml(project, idx) + '\n';
+    }
   }
   printContainer.innerHTML = html;
 }
 
 function updatePrintPreview() {
   updateDynamicPrintStyle();
-  renderAllSheetsToPrintContainer();
+  renderSheetsToPrintContainer(selectedPreviewTeam);
 
   const previewContainer = document.getElementById('preview-container');
   const alertEl = document.getElementById('print-alert');

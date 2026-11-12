@@ -78,6 +78,7 @@ export function openMapPicker(container, opts = {}) {
               <option value="15" ${currentPrintZoom === 15 ? 'selected' : ''}>15 (doporučeno)</option>
               <option value="16" ${currentPrintZoom === 16 ? 'selected' : ''}>16 (podrobná)</option>
               <option value="17" ${currentPrintZoom === 17 ? 'selected' : ''}>17 (velký detail)</option>
+              <option value="18" ${currentPrintZoom === 18 ? 'selected' : ''}>18 (extra detail)</option>
             </select>
           </label>
         </div>
@@ -206,11 +207,15 @@ export function openMapPicker(container, opts = {}) {
       const geo = makeGeoref(georef);
       const extent = mapExtentMeters(geo);
       const scale = Math.round((extent.widthM * 1000) / printWidthMm);
+      const cmM = scale / 100;
+      const cmText = cmM >= 1000
+        ? `${(cmM / 1000).toFixed(cmM % 1000 === 0 ? 0 : 1)} km`
+        : `${Math.round(cmM)} m`;
 
-      scaleEl.textContent = `Měřítko tisku: 1 : ${scale.toLocaleString('cs-CZ')}`;
+      scaleEl.textContent = `Měřítko tisku: 1 : ${scale.toLocaleString('cs-CZ')} (1 cm = ${cmText})`;
       const wKm = (extent.widthM / 1000).toFixed(1);
       const hKm = (extent.heightM / 1000).toFixed(1);
-      extentEl.textContent = `(cca ${wKm} × ${hKm} km)`;
+      extentEl.textContent = `(cca ${wKm} × ${hKm} km v terénu)`;
 
       if (typeof opts.onChange === 'function') {
         opts.onChange({

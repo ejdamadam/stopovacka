@@ -98,3 +98,30 @@ test('renderSheetHtml: podpora pro map.kind="image"', () => {
   assert.ok(html.includes('data:image/jpeg;base64,/9j/4AAQSkZJRg=='));
   assert.ok(html.includes('Tým T1: sem tlustě čáru fixou'));
 });
+
+test('layoutForProject: všechna kalibrační pole mají shodnou velikost (žádné pole není větší)', async () => {
+  const { computeLayout } = await import('../js/core/layout.js');
+  // 4 týmy -> 3 kalibrační pole, 8 značek po obvodu
+  const layout = computeLayout('A4', 'portrait', null, 3, 8);
+  assert.equal(layout.calib.length, 3);
+  const w0 = layout.calib[0].w;
+  const w1 = layout.calib[1].w;
+  const w2 = layout.calib[2].w;
+  assert.equal(w0, w1, 'Pole 0 a 1 mají stejnou šířku');
+  assert.equal(w1, w2, 'Pole 1 a 2 mají stejnou šířku');
+});
+
+test('renderSheetHtml: podrobné měřítko obsahuje převod 1 cm = X m a dílky', () => {
+  const project = {
+    teams: [{ name: 'A' }, { name: 'B' }],
+    paper: 'A4',
+    orientation: 'portrait',
+    map: {
+      kind: 'tiles',
+      georef: { type: 'tiles', z: 15, px0: 4400000, py0: 2800000, px1: 4404000, py1: 2806000 }
+    }
+  };
+  const html = renderSheetHtml(project, 0);
+  assert.ok(html.includes('1 cm ='), 'Měřítko obsahuje převodní poměr 1 cm = ...');
+  assert.ok(html.includes('sheet-scalebar'), 'Obsahuje scalebar kontejner');
+});

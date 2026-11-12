@@ -133,7 +133,7 @@ export function renderSheetHtml(project, teamIdx) {
     mapContentHtml = `<div style="display:flex; width:100%; height:100%; align-items:center; justify-content:center; color:#888; font-family:sans-serif; font-size:4mm;">(Mapa zatím nebyla nastavena)</div>`;
   }
 
-  // Měřítko mapy
+  // Měřítko mapy (podrobné měřítko s dílky a převodem 1 cm = X m)
   if (project.map && project.map.georef) {
     try {
       const georef = makeGeoref(project.map.georef);
@@ -143,19 +143,55 @@ export function renderSheetHtml(project, teamIdx) {
         const scaleNum = Math.round(extent.widthM / paperM);
         const barM = niceBarLength(extent.widthM);
         const barMm = (barM / extent.widthM) * mapRect.w;
-        const barLabel = barM >= 1000
-          ? `${(barM / 1000).toFixed(barM % 1000 === 0 ? 0 : 1)} km`
-          : `${Math.round(barM)} m`;
+
+        // Poměr pro převod 1 cm na mapě na metry v terénu
+        const cmM = scaleNum / 100;
+        const cmText = cmM >= 1000
+          ? `${(cmM / 1000).toFixed(cmM % 1000 === 0 ? 0 : 1)} km`
+          : `${Math.round(cmM)} m`;
+
+        // Počet dílků měřítka (2, 4 nebo 5 podle délky úsečky)
+        const exp = Math.pow(10, Math.floor(Math.log10(barM)));
+        const frac = Math.round(barM / exp);
+        let numDivs = 4;
+        if (frac === 5) numDivs = 5;
+        else if (frac === 2) numDivs = 4;
+        else if (frac === 1) numDivs = (barM >= 100) ? 4 : 2;
+
+        const formatDist = (m) => {
+          if (m === 0) return '0';
+          if (m >= 1000) {
+            const km = m / 1000;
+            return `${km % 1 === 0 ? km.toFixed(0) : km.toFixed(1)} km`;
+          }
+          return `${Math.round(m)} m`;
+        };
+
+        const barLabel = formatDist(barM);
+        const midLabel = formatDist(barM / 2);
         const scaleText = `1 : ${scaleNum.toLocaleString('cs-CZ')}`;
 
+        // Vykreslení střídavých černých a bílých segmentů
+        let barSegmentsHtml = '';
+        for (let di = 0; di < numDivs; di++) {
+          const isBlack = (di % 2 === 0);
+          const isLast = (di === numDivs - 1);
+          barSegmentsHtml += `<div style="flex:1; height:100%; background:${isBlack ? '#000000' : '#ffffff'}; ${!isLast ? 'border-right:0.18mm solid #000;' : ''}"></div>`;
+        }
+
         scaleBarHtml = `
-          <div class="sheet-scalebar" style="position:absolute; left:2mm; bottom:2mm; background:rgba(255,255,255,0.88); padding:0.8mm 1.6mm; border:0.2mm solid #444; border-radius:0.4mm; font-family:sans-serif; line-height:1.2; text-align:center; z-index:10;">
-            <div style="font-size:2.2mm; font-weight:700; color:#111; margin-bottom:0.6mm;">${scaleText}</div>
-            <div style="display:flex; justify-content:space-between; width:${barMm.toFixed(2)}mm; font-size:1.8mm; color:#222;">
+          <div class="sheet-scalebar" style="position:absolute; left:2mm; bottom:2mm; background:rgba(255,255,255,0.92); padding:1mm 2mm 0.8mm 2mm; border:0.25mm solid #333; border-radius:0.5mm; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height:1.2; text-align:center; z-index:10; box-shadow:0 0.5mm 1.5mm rgba(0,0,0,0.15);">
+            <div style="font-size:2.4mm; font-weight:700; color:#111; margin-bottom:0.4mm;">
+              ${scaleText} <span style="font-size:1.8mm; font-weight:600; color:#444; margin-left:1mm;">(1 cm = ${cmText})</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; width:${barMm.toFixed(2)}mm; font-size:1.8mm; font-weight:600; color:#222; margin-bottom:0.3mm;">
               <span>0</span>
+              <span>${midLabel}</span>
               <span>${barLabel}</span>
             </div>
-            <div style="width:${barMm.toFixed(2)}mm; height:0.9mm; background:#000; border:0.15mm solid #000; margin-top:0.4mm;"></div>
+            <div style="display:flex; width:${barMm.toFixed(2)}mm; height:1.2mm; border:0.22mm solid #000; box-sizing:border-box;">
+              ${barSegmentsHtml}
+            </div>
           </div>`;
       }
     } catch (e) {
@@ -198,8 +234,11 @@ export function renderSheetHtml(project, teamIdx) {
 
     return `
       <div class="sheet-calib" style="position:absolute; left:${box.x}mm; top:${box.y}mm; width:${box.w}mm; height:${box.h}mm; box-sizing:border-box; border:0.25mm solid #000; background:#ffffff; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-        <div style="height:${labelH}mm; box-sizing:border-box; padding:0.4mm 1mm; font-size:2.2mm; line-height:1.15; font-weight:700; text-align:center; border-bottom:0.18mm solid #bbb; display:flex; align-items:center; justify-content:center; background:#f4f4f4; color:#111;">
+        <div style="height:${labelH}mm; box-sizing:border-box; padding:0.3mm 1mm; font-size:2.2mm; line-height:1.15; font-weight:700; text-align:center; border-bottom:0.18mm solid #bbb; display:flex; align-items:center; justify-content:center; background:#f4f4f4; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
           Tým ${escapeHtml(otherTeam.name)}: sem tlustě čáru fixou
+        </div>
+        <div style="height:${(box.h - labelH).toFixed(2)}mm; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:0.5mm 1mm; font-size:1.8mm; color:#888; line-height:1.2; pointer-events:none;">
+          <span>(libovolná barevná fixa mimo černou/šedou)</span>
         </div>
       </div>`;
   }).join('\n');
