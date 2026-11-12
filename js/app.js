@@ -544,6 +544,7 @@ function initStep2Map() {
         initialCenter: initCenter,
         tileUrl: initTileUrl,
         attribution: initAttribution,
+        apiKey: project.map && project.map.apiKey ? project.map.apiKey : (localStorage.getItem('stopovacka.mapyKey') || ''),
         onChange: (info) => {
           tileStatusMsg.textContent = 'Výřez změněn (nezapomeňte kliknout na Uložit)';
         }
@@ -560,6 +561,7 @@ function initStep2Map() {
       kind: 'tiles',
       tileUrl: mapPickerInstance.getTileUrl(),
       attribution: mapPickerInstance.getAttribution(),
+      apiKey: mapPickerInstance.getApiKey ? mapPickerInstance.getApiKey() : '',
       georef
     };
     saveProject(project);
@@ -827,7 +829,10 @@ function initStep3Print() {
       updateDynamicPrintStyle();
       renderSheetsToPrintContainer(selectedPreviewTeam);
 
-      // Počkáme na načtení a dekódování všech obrázků dlaždic v tiskovém kontejneru
+      // Dočasně přepneme stránku do tiskového stavu, aby prohlížeč (zejména Safari na iPhone)
+      // vykreslil tiskový kontejner v plné velikosti před vyvoláním dialogu tisku.
+      document.body.classList.add('is-printing-sheets');
+
       const printContainer = document.getElementById('print-container');
       if (printContainer) {
         const imgs = Array.from(printContainer.querySelectorAll('img'));
@@ -842,7 +847,7 @@ function initStep3Print() {
                 else resolve();
               };
               img.onerror = () => resolve();
-              setTimeout(resolve, 1500);
+              setTimeout(resolve, 800);
             });
           }));
         }
@@ -851,10 +856,20 @@ function initStep3Print() {
       btnPrint.disabled = false;
       btnPrint.textContent = origText;
 
+      const cleanupPrinting = () => {
+        document.body.classList.remove('is-printing-sheets');
+        window.removeEventListener('afterprint', cleanupPrinting);
+      };
+      window.addEventListener('afterprint', cleanupPrinting);
+
       requestAnimationFrame(() => {
         setTimeout(() => {
-          window.print();
-        }, 100);
+          try {
+            window.print();
+          } finally {
+            setTimeout(cleanupPrinting, 1500);
+          }
+        }, 50);
       });
     });
   }
@@ -863,6 +878,11 @@ function initStep3Print() {
   window.addEventListener('beforeprint', () => {
     updateDynamicPrintStyle();
     renderSheetsToPrintContainer(selectedPreviewTeam);
+    document.body.classList.add('is-printing-sheets');
+  });
+
+  window.addEventListener('afterprint', () => {
+    document.body.classList.remove('is-printing-sheets');
   });
 
   updatePrintTeamTabs();
@@ -902,15 +922,9 @@ function updateDynamicPrintStyle() {
           filter: none !important;
           -webkit-filter: none !important;
         }
-        .sheet-map-content.sheet-map-mode-grayscale img {
-          filter: grayscale(100%) !important;
-          -webkit-filter: grayscale(100%) !important;
-        }
-        .sheet-map-content.sheet-map-mode-colorFaded img {
-          filter: saturate(0.6) !important;
-          -webkit-filter: saturate(0.6) !important;
-        }
         .sheet-map-content img {
+          filter: none !important;
+          -webkit-filter: none !important;
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }

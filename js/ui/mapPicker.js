@@ -9,14 +9,62 @@ function formatScaleOption(s) {
   return `1 : ${s.toLocaleString('cs-CZ')} (1 cm = ${cmText})`;
 }
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export const TILE_PRESETS = [
   {
+    id: 'mtbmap',
+    name: 'MTBmap.cz (turistická ČR s KČT značením)',
+    url: 'https://tile.mtbmap.cz/mtbmap_tiles/{z}/{x}/{y}.png',
+    attribution: '© Přispěvatelé OpenStreetMap, mtbmap.cz (KČT pásové značení)',
+    maxZoom: 18
+  },
+  {
     id: 'opentopomap',
-    name: 'OpenTopoMap (turistická)',
+    name: 'OpenTopoMap (turistická celosvětová)',
     url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
     attribution: 'Kartendaten: © OpenStreetMap-Mitwirkende, SRTM | Kartendarstellung: © OpenTopoMap (CC-BY-SA)',
     subdomains: 'abc',
     maxZoom: 17
+  },
+  {
+    id: 'freemap',
+    name: 'Freemap Slovakia (outdoor)',
+    url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}',
+    attribution: '© OpenStreetMap přispěvatelé, Freemap Slovensko',
+    maxZoom: 19
+  },
+  {
+    id: 'mapy_outdoor',
+    name: 'Mapy.cz Turistická (vyžaduje API klíč)',
+    url: 'https://api.mapy.com/v1/maptiles/outdoor/256/{z}/{x}/{y}?apikey={apikey}',
+    attribution: '© Seznam.cz, a.s. a přispěvatelé',
+    requiresKey: 'mapy',
+    maxZoom: 19
+  },
+  {
+    id: 'mapy_basic',
+    name: 'Mapy.cz Základní (vyžaduje API klíč)',
+    url: 'https://api.mapy.com/v1/maptiles/basic/256/{z}/{x}/{y}?apikey={apikey}',
+    attribution: '© Seznam.cz, a.s. a přispěvatelé',
+    requiresKey: 'mapy',
+    maxZoom: 19
+  },
+  {
+    id: 'mapy_aerial',
+    name: 'Mapy.cz Letecká (vyžaduje API klíč)',
+    url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
+    attribution: '© Seznam.cz, a.s. a přispěvatelé',
+    requiresKey: 'mapy',
+    maxZoom: 19
   },
   {
     id: 'osm',
@@ -25,14 +73,6 @@ export const TILE_PRESETS = [
     attribution: '© OpenStreetMap přispěvatelé',
     subdomains: 'abc',
     maxZoom: 19
-  },
-  {
-    id: 'freemap',
-    name: 'Freemap Slovakia (outdoor)',
-    url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}',
-    attribution: '© OpenStreetMap přispěvatelé, Freemap Slovensko',
-    subdomains: 'abc',
-    maxZoom: 18
   }
 ];
 
@@ -59,6 +99,13 @@ export function openMapPicker(container, opts = {}) {
   let aspect = opts.aspect && opts.aspect > 0 ? opts.aspect : 1.4;
   let printWidthMm = opts.printWidthMm && opts.printWidthMm > 0 ? opts.printWidthMm : 190;
   let currentPrintZoom = Number(opts.printZoom) || 15;
+
+  let currentApiKey = opts.apiKey || '';
+  if (!currentApiKey) {
+    try {
+      currentApiKey = localStorage.getItem('stopovacka.mapyKey') || '';
+    } catch (e) {}
+  }
 
   // Najít odpovídající preset nebo použít první
   let currentPreset = TILE_PRESETS.find(p => p.url === opts.tileUrl) || TILE_PRESETS[0];
@@ -92,6 +139,11 @@ export function openMapPicker(container, opts = {}) {
               ${TILE_PRESETS.map(p => `<option value="${p.id}" ${p.url === currentTileUrl ? 'selected' : ''}>${p.name}</option>`).join('')}
             </select>
           </label>
+          <div class="map-picker-key-wrap" style="display:${currentPreset.requiresKey ? 'flex' : 'none'}; align-items:center; gap:6px; background:#fff; border:1px solid #bbb; border-radius:4px; padding:3px 6px;">
+            <span style="font-weight:600; font-size:13px; color:#333;">Klíč Mapy.cz:</span>
+            <input type="text" class="map-picker-api-key" placeholder="Vložte API klíč" value="${escapeHtml(currentApiKey)}" style="width:140px; padding:2px 6px; border:1px solid #ccc; border-radius:3px; font-size:12px;" />
+            <a href="https://developer.mapy.com/" target="_blank" rel="noopener" style="font-size:11px; color:#1a73e8; text-decoration:none; white-space:nowrap;" title="Získat zdarma API klíč na developer.mapy.com">Získat zdarma ↗</a>
+          </div>
           <div style="display:flex; align-items:center; gap:5px; background:#fff; border:1px solid #bbb; border-radius:4px; padding:3px 6px;">
             <span style="font-weight:600; font-size:13px; color:#333;">Měřítko:</span>
             <button type="button" class="btn-scale-step-out" style="width:24px; height:24px; border:1px solid #ccc; border-radius:3px; background:#f4f4f4; cursor:pointer; font-weight:bold; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; user-select:none;" title="Zmenšit měřítko / oddálit (např. 1:15 000)">−</button>
@@ -146,6 +198,8 @@ export function openMapPicker(container, opts = {}) {
   const scaleSelect = container.querySelector('.map-picker-scale-select');
   const btnScaleStepOut = container.querySelector('.btn-scale-step-out');
   const btnScaleStepIn = container.querySelector('.btn-scale-step-in');
+  const keyWrap = container.querySelector('.map-picker-key-wrap');
+  const keyInput = container.querySelector('.map-picker-api-key');
 
   // Inicializace Leaflet mapy s plynulým zoomováním umožňujícím přesné standardní měřítko
   const map = L.map(mapEl, {
@@ -166,10 +220,10 @@ export function openMapPicker(container, opts = {}) {
     currentPreset = preset;
     currentTileUrl = preset.url;
     currentAttribution = preset.attribution;
-    currentTileLayer = L.tileLayer(preset.url, {
+    const effectiveUrl = preset.url.replace(/\{apikey\}/g, encodeURIComponent(currentApiKey || ''));
+    currentTileLayer = L.tileLayer(effectiveUrl, {
       subdomains: preset.subdomains || 'abc',
-      maxZoom: preset.maxZoom || 19,
-      crossOrigin: true
+      maxZoom: preset.maxZoom || 19
     }).addTo(map);
   }
 
@@ -323,6 +377,7 @@ export function openMapPicker(container, opts = {}) {
           georef,
           tileUrl: currentTileUrl,
           attribution: currentAttribution,
+          apiKey: currentApiKey,
           printZoom: currentPrintZoom,
           scale: snappedScale,
           extent
@@ -336,9 +391,25 @@ export function openMapPicker(container, opts = {}) {
   // Obsluha ovládacích prvků
   layerSelect.addEventListener('change', (e) => {
     const preset = TILE_PRESETS.find(p => p.id === e.target.value) || TILE_PRESETS[0];
+    if (keyWrap) {
+      keyWrap.style.display = preset.requiresKey ? 'flex' : 'none';
+    }
     setLayer(preset);
     updateInfo();
   });
+
+  if (keyInput) {
+    keyInput.addEventListener('input', (e) => {
+      currentApiKey = e.target.value.trim();
+      try {
+        localStorage.setItem('stopovacka.mapyKey', currentApiKey);
+      } catch (err) {}
+      if (currentPreset.requiresKey) {
+        setLayer(currentPreset);
+        updateInfo();
+      }
+    });
+  }
 
   zoomSelect.addEventListener('change', (e) => {
     currentPrintZoom = e.target.value === 'auto' ? 'auto' : (Number(e.target.value) || 15);
@@ -371,6 +442,9 @@ export function openMapPicker(container, opts = {}) {
     },
     getAttribution() {
       return currentAttribution;
+    },
+    getApiKey() {
+      return currentApiKey;
     },
     getSelectedPreset() {
       return currentPreset;

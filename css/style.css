@@ -505,16 +505,44 @@ body {
   border: 1px solid #fde68a;
 }
 
-/* Tiskový kontejner – mimo obrazovku, aby prohlížeč načetl a dekódoval obrázky map před tiskem */
+/* Tiskový kontejner – ve výchozím stavu na obrazovce skrytý, zobrazí se v @media print a při tisku */
 #print-container {
-  position: fixed;
-  left: -99999px;
-  top: 0;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
+  display: none;
+}
+
+/* Na obrazovce (v náhledu) aplikujeme filtr podle zvoleného režimu */
+.sheet-map-content.sheet-map-mode-grayscale {
+  filter: grayscale(1) contrast(.85) brightness(1.08);
+  -webkit-filter: grayscale(1) contrast(.85) brightness(1.08);
+}
+.sheet-map-content.sheet-map-mode-colorFaded {
+  filter: saturate(0.60) contrast(.90) brightness(1.08);
+  -webkit-filter: saturate(0.60) contrast(.90) brightness(1.08);
+}
+.sheet-map-content.sheet-map-mode-color {
+  filter: none;
+  -webkit-filter: none;
+}
+
+/* Tiskový stav aktivovaný před spuštěním window.print() pro 100% spolehlivost na iPhone Safari i desktopu */
+body.is-printing-sheets .app-header,
+body.is-printing-sheets .app-nav,
+body.is-printing-sheets .app-main {
+  display: none !important;
+}
+body.is-printing-sheets #print-container {
+  display: block !important;
+  position: static !important;
+  width: 100% !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+body.is-printing-sheets .sheet-map-content,
+body.is-printing-sheets .sheet-map-content img {
+  filter: none !important;
+  -webkit-filter: none !important;
 }
 
 /* ========================================================= */
@@ -581,9 +609,7 @@ body {
     break-after: avoid !important;
   }
 
-  /* Oprava WebKit/Safari chyby s šedým blokem:
-     Filtr na celém obalovacím kontejneru v tisku způsobí prázdný šedý obdélník.
-     Vypneme filtr na kontejneru a aplikujeme jej přímo na jednotlivé img. */
+  /* V tisku nesmí být CSS filter na elementech mapy, jinak WebKit/Safari vykreslí šedý/prázdný obdélník */
   .sheet-map-box {
     background: #ffffff !important;
   }
@@ -593,17 +619,9 @@ body {
     -webkit-filter: none !important;
   }
 
-  .sheet-map-content.sheet-map-mode-grayscale img {
-    filter: grayscale(100%) !important;
-    -webkit-filter: grayscale(100%) !important;
-  }
-
-  .sheet-map-content.sheet-map-mode-colorFaded img {
-    filter: saturate(0.6) !important;
-    -webkit-filter: saturate(0.6) !important;
-  }
-
   .sheet-map-content img {
+    filter: none !important;
+    -webkit-filter: none !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }

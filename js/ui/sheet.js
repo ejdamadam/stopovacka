@@ -23,9 +23,9 @@ function escapeHtml(str) {
 }
 
 /**
- * Dosazení parametrů do šablony URL dlaždice (např. {z}, {x}, {y}, {s}).
+ * Dosazení parametrů do šablony URL dlaždice (např. {z}, {x}, {y}, {s}, {apikey}).
  */
-function formatTileUrl(template, x, y, z) {
+function formatTileUrl(template, x, y, z, apiKey = '') {
   if (!template) return '';
   const subdomains = ['a', 'b', 'c'];
   const s = subdomains[Math.abs(x + y) % subdomains.length];
@@ -33,7 +33,8 @@ function formatTileUrl(template, x, y, z) {
     .replace(/\{s\}/g, s)
     .replace(/\{z\}/g, String(z))
     .replace(/\{x\}/g, String(x))
-    .replace(/\{y\}/g, String(y));
+    .replace(/\{y\}/g, String(y))
+    .replace(/\{apikey\}/g, encodeURIComponent(apiKey || ''));
 }
 
 /**
@@ -121,8 +122,9 @@ export function renderSheetHtml(project, teamIdx) {
           const topPct = ((ty * 256 - py0) / totalH) * 100;
           const widthPct = (256 / totalW) * 100;
           const heightPct = (256 / totalH) * 100;
-          const url = formatTileUrl(project.map.tileUrl, tx, ty, z);
-          tiles += `<img src="${escapeHtml(url)}" alt="" style="position:absolute; left:${leftPct.toFixed(4)}%; top:${topPct.toFixed(4)}%; width:${widthPct.toFixed(4)}%; height:${heightPct.toFixed(4)}%; display:block; pointer-events:none;" crossorigin="anonymous" />`;
+          const apiKey = project.map && project.map.apiKey ? project.map.apiKey : '';
+          const url = formatTileUrl(project.map.tileUrl, tx, ty, z, apiKey);
+          tiles += `<img src="${escapeHtml(url)}" alt="" style="position:absolute; left:${leftPct.toFixed(4)}%; top:${topPct.toFixed(4)}%; width:${widthPct.toFixed(4)}%; height:${heightPct.toFixed(4)}%; display:block; pointer-events:none;" />`;
         }
       }
       mapContentHtml = tiles;
