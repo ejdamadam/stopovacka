@@ -1,0 +1,19 @@
+{
+  "name": "Stopovačka – Příprava & vyhodnocení hry",
+  "short_name": "Stopovačka",
+  "description": "Automatické vyhodnocení stopovací hry v terénu bez nutnosti internetu",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1e88e5",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e88e5'/><path d='M30 70 L50 25 L70 70 L50 55 Z' fill='%23ffffff'/><circle cx='50' cy='50' r='6' fill='%23e53935'/></svg>",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

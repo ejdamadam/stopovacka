@@ -133,6 +133,7 @@ function resizeImageFile(file, maxDim = 2400, quality = 0.85) {
 // Inicializace UI po načtení DOM
 // -------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
+  initOfflineSupport();
   initTabs();
   initStep1Project();
   initStep2Map();
@@ -140,6 +141,33 @@ document.addEventListener('DOMContentLoaded', () => {
   initStep4Game();
   initStep5Evaluate();
 });
+
+function initOfflineSupport() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then((reg) => {
+        console.log('Stopovačka Service Worker aktivní:', reg.scope);
+      })
+      .catch((err) => {
+        console.warn('Registrace Service Workeru selhala:', err);
+      });
+  }
+
+  const badge = document.getElementById('project-status-badge');
+  const updateBadge = () => {
+    if (!badge) return;
+    if (navigator.onLine) {
+      badge.textContent = '🟢 Online';
+      badge.title = 'Aplikace je připojena k síti a uložena v offline mezipaměti.';
+    } else {
+      badge.textContent = '✈️ Offline';
+      badge.title = 'Běží v offline režimu – vyhodnocení archů a analýza funguje bez internetu.';
+    }
+  };
+  window.addEventListener('online', updateBadge);
+  window.addEventListener('offline', updateBadge);
+  updateBadge();
+}
 
 // -------------------------------------------------------------
 // Přepínání záložek
