@@ -1,24 +1,24 @@
 /* css/style.css - Stopovačka: webová aplikace pro vyhodnocení orientační hry */
 
 :root {
-  --primary: #1976d2;
-  --primary-hover: #1565c0;
-  --primary-light: #e3f2fd;
-  --success: #2e7d32;
-  --danger: #d32f2f;
-  --warning: #ed6c02;
-  --bg-page: #f8f9fa;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-light: #eff6ff;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --bg-page: #f8fafc;
   --bg-card: #ffffff;
-  --text-main: #1f2937;
-  --text-muted: #6b7280;
-  --border-color: #e5e7eb;
-  --border-strong: #d1d5db;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --border-color: #e2e8f0;
+  --border-strong: #cbd5e1;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
 }
 
 * {
@@ -40,11 +40,10 @@ body {
 .app-header {
   background: #ffffff;
   border-bottom: 1px solid var(--border-color);
-  padding: 12px 16px;
+  padding: 10px 16px;
   position: sticky;
   top: 0;
   z-index: 1100;
-  box-shadow: var(--shadow-sm);
 }
 
 .header-content {
@@ -62,10 +61,10 @@ body {
 }
 
 .brand h1 {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
-  color: var(--primary);
-  letter-spacing: -0.5px;
+  color: var(--text-main);
+  letter-spacing: -0.3px;
 }
 
 .brand .subtitle {
@@ -98,19 +97,19 @@ body {
 .nav-tab-btn {
   background: none;
   border: none;
-  border-bottom: 3px solid transparent;
-  padding: 12px 14px;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s ease;
-  min-height: 44px;
+  min-height: 42px;
 }
 
 .nav-tab-btn:hover {
-  color: var(--primary);
+  color: var(--text-main);
 }
 
 .nav-tab-btn.active {
@@ -138,36 +137,37 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 20px;
-  margin-bottom: 20px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
   box-shadow: var(--shadow-sm);
 }
 
 .card-title {
-  font-size: 18px;
-  font-weight: 700;
-  margin-bottom: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
   color: var(--text-main);
+  letter-spacing: -0.2px;
 }
 
 .card-desc {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 /* Form Controls */
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .form-label {
@@ -177,48 +177,54 @@ body {
 }
 
 .form-control {
-  font-size: 16px; /* Zabraňuje zoomu na iOS Safari */
-  padding: 10px 12px;
+  font-size: 14px;
+  padding: 8px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: #ffffff;
   color: var(--text-main);
   outline: none;
-  transition: border-color 0.15s ease;
-  min-height: 44px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  min-height: 40px;
+}
+
+@media (max-width: 640px) {
+  .form-control {
+    font-size: 16px; /* Zabraňuje zoomu na iOS Safari */
+  }
 }
 
 .form-control:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.15);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 /* Teams List */
 .teams-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .team-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  background: #fbfbfb;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
 }
 
 .team-badge {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
@@ -229,8 +235,8 @@ body {
 }
 
 .team-color-picker {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   padding: 2px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
@@ -244,20 +250,20 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  font-size: 15px;
+  gap: 6px;
+  font-size: 14px;
   font-weight: 600;
-  padding: 10px 18px;
+  padding: 8px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   cursor: pointer;
   text-decoration: none;
-  transition: background-color 0.15s ease, transform 0.05s ease;
-  min-height: 44px;
+  transition: all 0.15s ease;
+  min-height: 38px;
 }
 
 .btn:active {
-  transform: scale(0.98);
+  transform: scale(0.99);
 }
 
 .btn-primary {
@@ -270,46 +276,55 @@ body {
 }
 
 .btn-secondary {
-  background-color: #f3f4f6;
+  background-color: #ffffff;
   border-color: var(--border-strong);
   color: var(--text-main);
 }
 
 .btn-secondary:hover {
-  background-color: #e5e7eb;
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+
+.btn-ghost:hover {
+  background: #f1f5f9;
+  color: var(--text-main);
 }
 
 .btn-danger {
-  background-color: #fee2e2;
-  border-color: #fca5a5;
+  background-color: #fef2f2;
+  border-color: #fecaca;
   color: var(--danger);
 }
 
 .btn-danger:hover {
-  background-color: #fecaca;
+  background-color: #fee2e2;
 }
 
 .btn-sm {
   font-size: 13px;
-  padding: 6px 12px;
-  min-height: 34px;
+  padding: 5px 10px;
+  min-height: 32px;
 }
 
 /* Radio / Segmented Control */
 .segmented-control {
-  display: flex;
-  background: #f1f3f5;
+  display: inline-flex;
+  background: #f1f5f9;
   border-radius: var(--radius-sm);
-  padding: 3px;
-  gap: 4px;
-  margin-bottom: 16px;
+  padding: 2px;
+  gap: 2px;
 }
 
 .segmented-btn {
-  flex: 1;
-  text-align: center;
-  padding: 8px 12px;
-  font-size: 14px;
+  padding: 6px 12px;
+  font-size: 13px;
   font-weight: 600;
   border: none;
   background: none;
@@ -317,7 +332,18 @@ body {
   cursor: pointer;
   color: var(--text-muted);
   transition: all 0.15s ease;
-  min-height: 40px;
+  min-height: 32px;
+}
+
+.segmented-btn:hover {
+  color: var(--text-main);
+}
+
+.segmented-btn.active {
+  background: #ffffff;
+  color: var(--text-main);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
 }
 
 .segmented-btn.active {

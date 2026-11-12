@@ -401,17 +401,17 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
     toolbar.className = 'eval-toolbar';
     toolbar.innerHTML = `
       <div class="eval-stats-summary">
-        <span class="eval-stat-item">Archy: <strong>${evaluatedCount} z ${nTeams}</strong></span>
-        <span class="eval-stat-item">GPX trasy: <strong>${tracksCount} z ${nTeams}</strong></span>
-        <span class="eval-stat-item">Mapa: <strong>${mapReady ? '✓ Připravena' : '⚠️ Chybí georeference'}</strong></span>
+        <span class="eval-stat-item">Archy: <strong>${evaluatedCount} / ${nTeams}</strong></span>
+        <span class="eval-stat-item">GPX trasy: <strong>${tracksCount} / ${nTeams}</strong></span>
+        <span class="eval-stat-item">Mapa: <strong>${mapReady ? 'Připravena' : 'Chybí georeference'}</strong></span>
       </div>
       <div class="eval-toolbar-actions">
         <label class="btn btn-primary btn-sm" style="cursor:pointer;" title="Vyberte více fotek archů najednou">
-          📷 Nahrát fotky archů (hromadně)
+          Nahrát fotky archů
           <input type="file" multiple accept="image/*" class="file-input-hidden" id="eval-global-upload-input" />
         </label>
-        ${photosMap.size > 0 ? `<button type="button" class="btn btn-secondary btn-sm" id="eval-btn-recalc-all" title="Přepočítat všechny načtené fotky s aktuálním nastavením">🔄 Přepočítat (${photosMap.size})</button>` : ''}
-        ${hasAnyResults ? `<button type="button" class="btn btn-secondary btn-sm" id="eval-btn-export-csv" title="Stáhnout kompletní tabulku výsledků v CSV">📥 Export CSV</button>` : ''}
+        ${photosMap.size > 0 ? `<button type="button" class="btn btn-secondary btn-sm" id="eval-btn-recalc-all" title="Přepočítat všechny načtené fotky s aktuálním nastavením">Přepočítat (${photosMap.size})</button>` : ''}
+        ${hasAnyResults ? `<button type="button" class="btn btn-secondary btn-sm" id="eval-btn-export-csv" title="Stáhnout tabulku výsledků v CSV">Exportovat CSV</button>` : ''}
       </div>
     `;
     sectionEl.appendChild(toolbar);
@@ -420,7 +420,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
     if (isBatchProcessing) {
       const batchBox = document.createElement('div');
       batchBox.className = 'alert alert-info';
-      batchBox.innerHTML = `⏳ <strong>Zpracovávám fotky:</strong> ${batchProgressText || 'Analyzuji značky a čáry…'}`;
+      batchBox.innerHTML = `Zpracovávám fotky: ${batchProgressText || 'Analyzuji značky a čáry…'}`;
       sectionEl.appendChild(batchBox);
     }
 
@@ -428,21 +428,21 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
     if (!mapReady) {
       const alertMap = document.createElement('div');
       alertMap.className = 'alert alert-warning';
-      alertMap.innerHTML = `⚠️ <strong>Chybí mapa:</strong> V záložce „2. Mapa“ nastavte a georeferencujte mapu. Bez mapy nelze porovnat nakreslené čáry s GPX.`;
+      alertMap.innerHTML = `V záložce „2. Mapa“ nastavte a georeferencujte mapu. Bez mapy nelze porovnat čáry s GPX.`;
       sectionEl.appendChild(alertMap);
     }
 
     if (missingGpx.length > 0) {
       const alertGpx = document.createElement('div');
       alertGpx.className = 'alert alert-warning';
-      alertGpx.innerHTML = `⚠️ <strong>Chybí GPX trasy pro týmy:</strong> ${missingGpx.join(', ')}. Bez GPX nelze spočítat přesnost jejich stopování. Nahrajte je v záložce „4. Hra & GPX“.`;
+      alertGpx.innerHTML = `Chybí GPX trasy pro týmy: ${missingGpx.join(', ')}.`;
       sectionEl.appendChild(alertGpx);
     }
 
     if (gpxErrors.length > 0) {
       const alertGpxErr = document.createElement('div');
       alertGpxErr.className = 'alert alert-danger';
-      alertGpxErr.innerHTML = `❌ <strong>Chyby v GPX trasách:</strong><br>${gpxErrors.join('<br>')}`;
+      alertGpxErr.innerHTML = `Chyby v GPX trasách:<br>${gpxErrors.join('<br>')}`;
       sectionEl.appendChild(alertGpxErr);
     }
 
@@ -453,8 +453,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
       scoreCard.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
           <div>
-            <h3 class="card-title" style="margin-bottom:2px;">🏆 Celkové pořadí hry</h3>
-            <p class="card-desc" style="margin-bottom:0;">Celkové skóre = stopování ostatních + utajení před ostatními − penalizace za výpadky GPX.</p>
+            <h3 class="card-title" style="margin-bottom:0;">Celkové pořadí</h3>
           </div>
         </div>
 
@@ -474,10 +473,9 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
             <tbody>
               ${gameScoreRows.map((r, rank) => {
                 const teamObj = project.teams[r.team];
-                const medal = rank === 0 ? '🥇 ' : rank === 1 ? '🥈 ' : rank === 2 ? '🥉 ' : `${rank + 1}.`;
                 return `
                   <tr style="${rank === 0 ? 'background-color: #f0fdf4; font-weight:600;' : ''}">
-                    <td>${medal}</td>
+                    <td>${rank + 1}.</td>
                     <td>
                       <div style="display:flex; align-items:center; gap:8px;">
                         <span class="team-dot" style="background-color:${teamObj ? teamObj.color : '#888'};"></span>
@@ -501,8 +499,8 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
         </div>
 
         <!-- Matice detailu: kdo stopoval koho -->
-        <h4 style="font-size:14px; font-weight:700; margin-top:20px; margin-bottom:8px; color:var(--text-main);">
-          Matice stopování (řádek = kdo stopoval, sloupec = koho)
+        <h4 style="font-size:14px; font-weight:600; margin-top:20px; margin-bottom:8px; color:var(--text-main);">
+          Matice stopování
         </h4>
         <div class="eval-table-wrap">
           <table class="eval-table" style="font-size:12px;">
@@ -555,11 +553,11 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
 
       let statusBadgeHtml = `<span class="sheet-status-badge sheet-status-none">Nevyhodnoceno</span>`;
       if (st === 'processing') {
-        statusBadgeHtml = `<span class="sheet-status-badge sheet-status-busy">⏳ Zpracovávám…</span>`;
+        statusBadgeHtml = `<span class="sheet-status-badge sheet-status-busy">Zpracovávám…</span>`;
       } else if (st === 'error' || cardErrors[teamIdx]) {
-        statusBadgeHtml = `<span class="sheet-status-badge sheet-status-error">✕ Chyba</span>`;
+        statusBadgeHtml = `<span class="sheet-status-badge sheet-status-error">Chyba</span>`;
       } else if (isDone) {
-        statusBadgeHtml = `<span class="sheet-status-badge sheet-status-done">✓ Vyhodnoceno</span>`;
+        statusBadgeHtml = `<span class="sheet-status-badge sheet-status-done">Vyhodnoceno</span>`;
       }
 
       card.innerHTML = `
@@ -567,10 +565,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
           <div class="sheet-card-title">
             <div class="team-badge" style="background-color:${team.color};">${teamIdx + 1}</div>
             <div>
-              <div>Arch týmu: <strong>${team.name}</strong></div>
-              <div style="font-size:12px; font-weight:normal; color:var(--text-muted);">
-                Zde tým zakresloval trasy ostatních týmů
-              </div>
+              <strong>${team.name}</strong>
             </div>
           </div>
           <div>${statusBadgeHtml}</div>
@@ -578,15 +573,15 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
 
         <div class="sheet-upload-area">
           <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
-            📷 ${isDone ? 'Změnit / přefotit arch' : 'Vyfotit / vybrat arch'}
+            ${isDone ? 'Změnit fotku' : 'Vybrat / vyfotit arch'}
             <input type="file" accept="image/*" class="file-input-hidden single-team-upload-input" data-team="${teamIdx}" />
           </label>
-          ${hasPhoto ? `<span style="font-size:12px; color:var(--success); font-weight:600;">✓ Fotka načtena v paměti</span>` : ''}
-          ${isDone && !hasPhoto ? `<span style="font-size:12px; color:var(--text-muted);">(Výsledky načteny z minula, pro náhled mapy nahrajte fotku znovu)</span>` : ''}
+          ${hasPhoto ? `<span style="font-size:12px; color:var(--success); font-weight:600;">Fotka načtena</span>` : ''}
+          ${isDone && !hasPhoto ? `<span style="font-size:12px; color:var(--text-muted);">(Výsledky načteny z minula)</span>` : ''}
         </div>
 
-        ${cardNotes[teamIdx] ? `<div class="alert alert-info" style="font-size:13px; margin-bottom:12px;">ℹ️ ${cardNotes[teamIdx]}</div>` : ''}
-        ${cardErrors[teamIdx] ? `<div class="alert alert-danger" style="font-size:13px; margin-bottom:12px;">❌ <strong>Chyba:</strong> ${cardErrors[teamIdx]}</div>` : ''}
+        ${cardNotes[teamIdx] ? `<div class="alert alert-info" style="font-size:13px; margin-bottom:12px;">${cardNotes[teamIdx]}</div>` : ''}
+        ${cardErrors[teamIdx] ? `<div class="alert alert-danger" style="font-size:13px; margin-bottom:12px;">${cardErrors[teamIdx]}</div>` : ''}
       `;
 
       // Pokud máme vyhodnocený výsledek archu, zobrazíme detaily
