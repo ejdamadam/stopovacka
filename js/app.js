@@ -3,7 +3,7 @@
 
 import { layoutForProject } from './core/layout.js';
 import { makeGeoref, parseLatLon } from './core/geo.js';
-import { renderSheetHtml } from './ui/sheet.js';
+import { renderSheetHtml, renderMapToCanvas } from './ui/sheet.js';
 import { openMapPicker } from './ui/mapPicker.js';
 
 const STORAGE_KEY = 'stopovacka.project.v1';
@@ -232,6 +232,7 @@ function initStep1Project() {
     paperSelect.value = project.paper || 'A4';
     paperSelect.onchange = () => {
       project.paper = paperSelect.value;
+      if (project.map) delete project.map.renderedDataUrl;
       saveProject(project);
       syncLayoutChanges();
     };
@@ -241,6 +242,7 @@ function initStep1Project() {
     orientSelect.value = project.orientation || 'portrait';
     orientSelect.onchange = () => {
       project.orientation = orientSelect.value;
+      if (project.map) delete project.map.renderedDataUrl;
       saveProject(project);
       syncLayoutChanges();
     };
@@ -250,6 +252,7 @@ function initStep1Project() {
     mapPrintModeSelect.value = project.mapPrintMode || 'grayscale';
     mapPrintModeSelect.onchange = () => {
       project.mapPrintMode = mapPrintModeSelect.value;
+      if (project.map) delete project.map.renderedDataUrl;
       saveProject(project);
       syncLayoutChanges();
     };
@@ -827,6 +830,22 @@ function initStep3Print() {
       btnPrint.textContent = '⏳ Příprava tisku…';
 
       updateDynamicPrintStyle();
+
+      // Pokud máme dlaždicovou mapu, předrenderujeme ji do jednoho souvislého JPEG data URL na canvasu.
+      // Tím se vyhneme Safari/WebKit chybě, kdy se 60 samostatných dlaždic nestihne stáhnout před otevřením
+      // tiskového dialogu, nebo je Safari zahodí, když uživatel nemá zaškrtnuto "Tisknout pozadí".
+      if (project.map && project.map.kind === 'tiles' && project.map.georef && !project.map.renderedDataUrl) {
+        try {
+          const printMode = project.mapPrintMode || 'grayscale';
+          const dataUrl = await renderMapToCanvas(project.map, printMode);
+          if (dataUrl) {
+            project.map.renderedDataUrl = dataUrl;
+          }
+        } catch (err) {
+          console.warn('Předvykreslení mapy selhalo, použije se fallback na dlaždice:', err);
+        }
+      }
+
       renderSheetsToPrintContainer(selectedPreviewTeam);
 
       // Dočasně přepneme stránku do tiskového stavu, aby prohlížeč (zejména Safari na iPhone)
@@ -955,6 +974,17 @@ function renderSheetsToPrintContainer(targetTeam = 'all') {
 function updatePrintPreview() {
   updateDynamicPrintStyle();
   renderSheetsToPrintContainer(selectedPreviewTeam);
+
+  // Na pozadí můžeme začít sestavovat mapu do canvasu, aby byla okamžitě k dispozici při stisku Tisknout
+  if (project.map && project.map.kind === 'tiles' && project.map.georef && !project.map.renderedDataUrl) {
+    const printMode = project.mapPrintMode || 'grayscale';
+    renderMapToCanvas(project.map, printMode).then(dataUrl => {
+      if (dataUrl && !project.map.renderedDataUrl) {
+        project.map.renderedDataUrl = dataUrl;
+        renderSheetsToPrintContainer(selectedPreviewTeam);
+      }
+    }).catch(() => {});
+  }
 
   const previewContainer = document.getElementById('preview-container');
   const alertEl = document.getElementById('print-alert');

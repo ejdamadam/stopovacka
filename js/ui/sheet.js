@@ -52,6 +52,112 @@ function niceBarLength(widthM) {
 }
 
 /**
+ * Načte dlaždice mapy pro daný georef a vykreslí je na offscreen canvas.
+ * Pokud je povolen CORS, vrátí data URL (JPEG).
+ * V případě grayscale režimu přímo převede pixely na odstíny šedi,
+ * což řeší chybu WebKitu/Safari, který při tisku CSS filter: grayscale ignoruje.
+ */
+export async function renderMapToCanvas(mapDef, printMode = 'grayscale') {
+  if (typeof document === 'undefined') return null; // Bezpečné v Node.js prostředí
+  if (!mapDef || mapDef.kind !== 'tiles' || !mapDef.georef) return null;
+  const { z, px0, py0, px1, py1 } = mapDef.georef;
+  const totalW = px1 - px0;
+  const totalH = py1 - py0;
+  if (totalW <= 0 || totalH <= 0) return null;
+
+  const tileX0 = Math.floor(px0 / 256);
+  const tileX1 = Math.floor((px1 - 1) / 256);
+  const tileY0 = Math.floor(py0 / 256);
+  const tileY1 = Math.floor((py1 - 1) / 256);
+  const apiKey = mapDef.apiKey || '';
+
+  const canvas = document.createElement('canvas');
+  canvas.width = totalW;
+  canvas.height = totalH;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Vytvoříme seznam všech dlaždic
+  const tilesToLoad = [];
+  for (let ty = tileY0; ty <= tileY1; ty++) {
+    for (let tx = tileX0; tx <= tileX1; tx++) {
+      const url = formatTileUrl(mapDef.tileUrl, tx, ty, z, apiKey);
+      const dx = tx * 256 - px0;
+      const dy = ty * 256 - py0;
+      tilesToLoad.push({ url, dx, dy });
+    }
+  }
+
+  // Načteme všechny dlaždice asynchronně
+  await Promise.all(tilesToLoad.map(item => {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        item.img = img;
+        resolve();
+      };
+      img.onerror = () => {
+        // Fallback bez CORS (např. Freemap)
+        const fb = new Image();
+        fb.onload = () => {
+          item.img = fb;
+          resolve();
+        };
+        fb.onerror = () => resolve();
+        fb.src = item.url;
+      };
+      img.src = item.url;
+    });
+  }));
+
+  // Vykreslíme dlaždice na plátno
+  for (const item of tilesToLoad) {
+    if (item.img) {
+      try {
+        ctx.drawImage(item.img, item.dx, item.dy, 256, 256);
+      } catch (err) {}
+    }
+  }
+
+  // Pokud je zvolen režim grayscale a plátno není "tainted", převedeme pixely přímo v paměti
+  if (printMode === 'grayscale') {
+    try {
+      const imgData = ctx.getImageData(0, 0, totalW, totalH);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const adjusted = Math.min(255, Math.max(0, gray * 0.95 + 12));
+        d[i] = adjusted;
+        d[i + 1] = adjusted;
+        d[i + 2] = adjusted;
+      }
+      ctx.putImageData(imgData, 0, 0);
+    } catch (corsErr) {
+      // Tainted canvas - nevadí
+    }
+  } else if (printMode === 'colorFaded') {
+    try {
+      const imgData = ctx.getImageData(0, 0, totalW, totalH);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        d[i] = Math.round(gray + 0.6 * (d[i] - gray));
+        d[i + 1] = Math.round(gray + 0.6 * (d[i + 1] - gray));
+        d[i + 2] = Math.round(gray + 0.6 * (d[i + 2] - gray));
+      }
+      ctx.putImageData(imgData, 0, 0);
+    } catch (corsErr) {}
+  }
+
+  try {
+    return canvas.toDataURL('image/jpeg', 0.92);
+  } catch (corsErr) {
+    return null;
+  }
+}
+
+/**
  * Vykreslí HTML jednoho tištěného archu (A4/A3) v mm pro zadaný index týmu.
  * @param {object} project Projekt hry (name, teams, paper, orientation, map, ...)
  * @param {number} teamIdx Index týmu (0..teams.length-1)
@@ -104,7 +210,9 @@ export function renderSheetHtml(project, teamIdx) {
   let scaleBarHtml = '';
   let attributionHtml = '';
 
-  if (project.map && project.map.kind === 'tiles' && project.map.georef) {
+  if (project.map && project.map.renderedDataUrl) {
+    mapContentHtml = `<img src="${project.map.renderedDataUrl}" alt="Mapa" style="position:absolute; left:0; top:0; width:100%; height:100%; object-fit:fill; display:block;" />`;
+  } else if (project.map && project.map.kind === 'tiles' && project.map.georef) {
     const { z, px0, py0, px1, py1 } = project.map.georef;
     const totalW = px1 - px0;
     const totalH = py1 - py0;
@@ -124,7 +232,7 @@ export function renderSheetHtml(project, teamIdx) {
           const heightPct = (256 / totalH) * 100;
           const apiKey = project.map && project.map.apiKey ? project.map.apiKey : '';
           const url = formatTileUrl(project.map.tileUrl, tx, ty, z, apiKey);
-          tiles += `<img src="${escapeHtml(url)}" alt="" style="position:absolute; left:${leftPct.toFixed(4)}%; top:${topPct.toFixed(4)}%; width:${widthPct.toFixed(4)}%; height:${heightPct.toFixed(4)}%; display:block; pointer-events:none;" />`;
+          tiles += `<img src="${escapeHtml(url)}" alt="Mapa" style="position:absolute; left:${leftPct.toFixed(4)}%; top:${topPct.toFixed(4)}%; width:${widthPct.toFixed(4)}%; height:${heightPct.toFixed(4)}%; display:block;" />`;
         }
       }
       mapContentHtml = tiles;
