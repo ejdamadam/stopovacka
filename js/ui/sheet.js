@@ -216,8 +216,8 @@ export function renderSheetHtml(project, teamIdx) {
   }
 
   const mapRectHtml = `
-    <div class="sheet-map-box" style="position:absolute; left:${mapRect.x}mm; top:${mapRect.y}mm; width:${mapRect.w}mm; height:${mapRect.h}mm; box-sizing:border-box; border:0.25mm solid #000; overflow:hidden; background:#f0f0f0;">
-      <div class="sheet-map-content" style="position:absolute; left:0; top:0; width:100%; height:100%; ${mapFilter} overflow:hidden;">
+    <div class="sheet-map-box" style="position:absolute; left:${mapRect.x}mm; top:${mapRect.y}mm; width:${mapRect.w}mm; height:${mapRect.h}mm; box-sizing:border-box; border:0.25mm solid #000; overflow:hidden; background:#ffffff;">
+      <div class="sheet-map-content sheet-map-mode-${mapPrintMode}" style="position:absolute; left:0; top:0; width:100%; height:100%; ${mapFilter} overflow:hidden;">
         ${mapContentHtml}
       </div>
       ${scaleBarHtml}

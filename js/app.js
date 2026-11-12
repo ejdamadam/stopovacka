@@ -819,10 +819,38 @@ function updatePrintButtonLabel() {
 function initStep3Print() {
   const btnPrint = document.getElementById('btn-print-sheets');
   if (btnPrint) {
-    btnPrint.addEventListener('click', () => {
+    btnPrint.addEventListener('click', async () => {
+      const origText = btnPrint.textContent;
+      btnPrint.disabled = true;
+      btnPrint.textContent = '⏳ Příprava tisku…';
+
       updateDynamicPrintStyle();
       renderSheetsToPrintContainer(selectedPreviewTeam);
-      // Krátká prodleva pro aplikaci CSS stylů a dokončení layoutu prohlížečem před otevřením dialogu tisku
+
+      // Počkáme na načtení a dekódování všech obrázků dlaždic v tiskovém kontejneru
+      const printContainer = document.getElementById('print-container');
+      if (printContainer) {
+        const imgs = Array.from(printContainer.querySelectorAll('img'));
+        if (imgs.length > 0) {
+          await Promise.all(imgs.map(img => {
+            if (img.complete && typeof img.decode === 'function') {
+              return img.decode().catch(() => {});
+            }
+            return new Promise(resolve => {
+              img.onload = () => {
+                if (typeof img.decode === 'function') img.decode().catch(() => {}).then(resolve);
+                else resolve();
+              };
+              img.onerror = () => resolve();
+              setTimeout(resolve, 1500);
+            });
+          }));
+        }
+      }
+
+      btnPrint.disabled = false;
+      btnPrint.textContent = origText;
+
       requestAnimationFrame(() => {
         setTimeout(() => {
           window.print();
@@ -866,6 +894,25 @@ function updateDynamicPrintStyle() {
         .sheet:last-child {
           page-break-after: avoid !important;
           break-after: avoid !important;
+        }
+        .sheet-map-box {
+          background: #ffffff !important;
+        }
+        .sheet-map-content {
+          filter: none !important;
+          -webkit-filter: none !important;
+        }
+        .sheet-map-content.sheet-map-mode-grayscale img {
+          filter: grayscale(100%) !important;
+          -webkit-filter: grayscale(100%) !important;
+        }
+        .sheet-map-content.sheet-map-mode-colorFaded img {
+          filter: saturate(0.6) !important;
+          -webkit-filter: saturate(0.6) !important;
+        }
+        .sheet-map-content img {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
         }
       }
     `;

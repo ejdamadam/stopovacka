@@ -505,9 +505,16 @@ body {
   border: 1px solid #fde68a;
 }
 
-/* Tiskový kontejner */
+/* Tiskový kontejner – mimo obrazovku, aby prohlížeč načetl a dekódoval obrázky map před tiskem */
 #print-container {
-  display: none;
+  position: fixed;
+  left: -99999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ========================================================= */
@@ -539,9 +546,15 @@ body {
   /* Zobrazit pouze tiskový kontejner */
   #print-container {
     display: block !important;
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
+    overflow: visible !important;
+    opacity: 1 !important;
   }
 
   .sheet {
@@ -566,6 +579,33 @@ body {
   .sheet:last-child {
     page-break-after: avoid !important;
     break-after: avoid !important;
+  }
+
+  /* Oprava WebKit/Safari chyby s šedým blokem:
+     Filtr na celém obalovacím kontejneru v tisku způsobí prázdný šedý obdélník.
+     Vypneme filtr na kontejneru a aplikujeme jej přímo na jednotlivé img. */
+  .sheet-map-box {
+    background: #ffffff !important;
+  }
+
+  .sheet-map-content {
+    filter: none !important;
+    -webkit-filter: none !important;
+  }
+
+  .sheet-map-content.sheet-map-mode-grayscale img {
+    filter: grayscale(100%) !important;
+    -webkit-filter: grayscale(100%) !important;
+  }
+
+  .sheet-map-content.sheet-map-mode-colorFaded img {
+    filter: saturate(0.6) !important;
+    -webkit-filter: saturate(0.6) !important;
+  }
+
+  .sheet-map-content img {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 }
 

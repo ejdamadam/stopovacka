@@ -1,5 +1,5 @@
 // Service Worker pro Stopovačku (100% offline provoz v terénu na iPhone / Android / Desktop)
-const CACHE_NAME = 'stopovacka-v8';
+const CACHE_NAME = 'stopovacka-v9';
 
 const STATIC_ASSETS = [
   './',
