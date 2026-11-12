@@ -207,7 +207,10 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
   const foreign = foreignTeams(nTeams, reg.team);
   const inks = foreign.map((t, i) => {
     const ink = layout.calib[i] ? sampleInk(rect, toPx(calibSampleRect(layout.calib[i]))) : null;
-    if (!ink) warnings.push(`Kalibrační pole týmu ${project.teams[t].name} je prázdné – jeho čáry nelze rozpoznat.`);
+    const teamName = project.teams[t]?.name || `Tým ${t + 1}`;
+    if (!ink) {
+      warnings.push(`Kalibrační pole týmu ${teamName} je prázdné – tým není na tomto archu vyhodnocován.`);
+    }
     return { team: t, ink };
   });
   const validInks = inks.filter(x => x.ink);
@@ -215,7 +218,7 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
   for (let i = 0; i < validInks.length; i++) for (let j = i + 1; j < validInks.length; j++) {
     const A = validInks[i].ink.lab, B = validInks[j].ink.lab;
     const d = Math.hypot((A[0] - B[0]) * 0.5, A[1] - B[1], A[2] - B[2]);
-    if (d < 20) warnings.push(`Fixy pro týmy ${project.teams[validInks[i].team].name} a ${project.teams[validInks[j].team].name} mají velmi podobnou barvu – mohou se plést.`);
+    if (d < 20) warnings.push(`Fixy pro týmy ${project.teams[validInks[i].team]?.name || validInks[i].team + 1} a ${project.teams[validInks[j].team]?.name || validInks[j].team + 1} mají velmi podobnou barvu – mohou se plést.`);
   }
 
   // 4) klasifikace pixelů v mapovém poli (bez okraje s rámečkem)
@@ -231,7 +234,7 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
   const mPerPx = ext.widthM / mapPx.w;
   const W = mapPx.w, Hh = mapPx.h;
   const perTeam = inks.map(({ team, ink }) => {
-    const out = { team, ink, error: null };
+    const out = { team, ink, error: null, skipped: false };
     const tr = tracks[team];
     // maska čar v souřadnicích mapového pole
     let drawn = new Uint8Array(W * Hh);
@@ -244,15 +247,20 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
       }
     }
     out.drawn = drawn;
+    if (!ink) {
+      out.skipped = true;
+      out.error = 'Nevyhodnocováno (prázdné kalibrační pole)';
+      out.score = null;
+      return out;
+    }
     if (!tr) { out.error = 'Chybí GPX trasa týmu'; return out; }
     const trackPx = tr.resampled.map(p => {
       const uv = georef.toUV(p.lat, p.lon);
       return { x: uv.u * W, y: uv.v * Hh, gap: !!p.gap };
     });
     out.trackPx = trackPx;
-    if (!ink) { out.error = 'Chybí kalibrace fixy'; return out; }
     Object.assign(out, compareDrawing(drawn, W, Hh, trackPx, mPerPx, o.tolM));
-    if (out.trackInMapFrac < 0.8) warnings.push(`Trasa týmu ${project.teams[team].name} je z ${Math.round((1 - out.trackInMapFrac) * 100)} % mimo mapu.`);
+    if (out.trackInMapFrac < 0.8) warnings.push(`Trasa týmu ${project.teams[team]?.name || team + 1} je z ${Math.round((1 - out.trackInMapFrac) * 100)} % mimo mapu.`);
     return out;
   });
 
@@ -287,7 +295,7 @@ export function renderOverlay(result, project, { onlyTeam = null, fade = 0.6 } =
     if (X < 0 || Y < 0 || X >= W || Y >= Hh) return;
     const o = (Y * W + X) * 4; data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2];
   };
-  const teams = result.perTeam.filter(p => onlyTeam == null || p.team === onlyTeam);
+  const teams = result.perTeam.filter(p => (onlyTeam == null || p.team === onlyTeam) && !p.skipped && p.ink);
   // nakreslené čáry
   for (const p of teams) {
     const c = p.ink ? p.ink.rgb : [255, 0, 255];
@@ -317,8 +325,8 @@ export function renderOverlay(result, project, { onlyTeam = null, fade = 0.6 } =
 
 /**
  * Skóre hry. sheetResults = {teamIdx: výsledek evaluateSheet}, tracks = {teamIdx: prepareTrack}.
- *  - stopování (0–100): průměr skóre archu týmu přes všechny cizí týmy (chybějící arch = 0)
- *  - utajení (0–100): 100 − průměr skóre, se kterým tým zakreslili ostatní
+ *  - stopování (0–100): průměr skóre archu týmu přes vyhodnocované cizí týmy (nevyplněné kalibrační pole se nepočítá)
+ *  - utajení (0–100): 100 − průměr skóre, se kterým tým zakreslili ostatní (nevyhodnocované archy se nepočítají)
  *  - penalizace: za výpadky GPX nad povolený limit (body za minutu); bez GPX → utajení 0
  * Vrací [{team, name, tracking, stealth, gapMin, penalty, total, detail:{[target]: score}}] seřazené podle total.
  */
@@ -329,14 +337,27 @@ export function gameScore(project, sheetResults, tracks, { allowedGapMin = 5, pe
     const res = sheetResults[i];
     const detail = {};
     let sum = 0;
+    let evaluatedCount = 0;
     for (const j of foreignTeams(n, i)) {
       const p = res && res.perTeam.find(x => x.team === j);
-      const s = p && Number.isFinite(p.score) ? p.score : 0;
-      detail[j] = res ? s : null;
-      sum += s;
-      if (res) got[j].push(s);
+      if (p && p.skipped) {
+        detail[j] = null; // Tento tým nebyl na archu stopován / chybí značka v kalibračním poli
+      } else if (p && Number.isFinite(p.score)) {
+        detail[j] = p.score;
+        sum += p.score;
+        evaluatedCount++;
+        got[j].push(p.score);
+      } else if (res) {
+        detail[j] = 0;
+        sum += 0;
+        evaluatedCount++;
+        got[j].push(0);
+      } else {
+        detail[j] = null;
+      }
     }
-    return { team: i, name: t.name, tracking: Math.round(sum / Math.max(1, n - 1)), detail };
+    const tracking = evaluatedCount > 0 ? Math.round(sum / evaluatedCount) : 0;
+    return { team: i, name: t.name, tracking, detail, evaluatedCount };
   });
   for (const r of rows) {
     const tr = tracks[r.team];

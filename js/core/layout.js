@@ -18,11 +18,18 @@ export const LAYOUT_VERSION = 3;
 
 export const PAPERS = { A4: { w: 210, h: 297 }, A3: { w: 297, h: 420 } };
 
-// 32 ID z původního ArUco slovníku: rotačně jednoznačná, vzájemná Hammingova vzdálenost ≥ 7
-// (16 pro rohové značky MARKER_IDS + 16 pro středové značky hran EDGE_IDS).
-export const CORNER_IDS = [1, 6, 24, 31, 42, 45, 51, 52, 75, 76, 82, 85, 96, 103, 121, 126];
-export const MARKER_IDS = CORNER_IDS;
-export const EDGE_IDS = [389, 394, 403, 412, 422, 432, 457, 479, 483, 492, 501, 642, 649, 660, 677, 703];
+// 64 ID z původního ArUco slovníku: rotačně jednoznačná, vzájemná Hammingova vzdálenost ≥ 5
+// (32 pro rohové značky CORNER_IDS + 32 pro středové značky hran EDGE_IDS), podpora pro až 8 týmů.
+// Prvních 16 CORNER_IDS a 16 EDGE_IDS přesně zachovává původní vybranou sadu pro týmy 1–4.
+export const CORNER_IDS = [
+  1, 6, 24, 31, 42, 45, 51, 52, 75, 76, 82, 85, 96, 103, 121, 126,
+  128, 135, 141, 145, 150, 155, 162, 164, 169, 175, 181, 184, 194, 196, 207, 208
+];
+export const MARKER_IDS = CORNER_IDS.slice(0, 16);
+export const EDGE_IDS = [
+  389, 394, 403, 412, 422, 432, 457, 479, 483, 492, 501, 642, 649, 660, 677, 703,
+  215, 217, 222, 225, 230, 232, 251, 252, 258, 260, 269, 272, 277, 282, 289, 295
+];
 export const ALL_MARKER_IDS = [...CORNER_IDS, ...EDGE_IDS];
 
 export const CORNERS = ['TL', 'TR', 'BR', 'BL'];

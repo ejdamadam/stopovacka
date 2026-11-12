@@ -382,11 +382,90 @@ function renderTeamsList(container) {
       saveProject(project);
     });
 
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'btn btn-ghost btn-sm';
+    deleteBtn.style.padding = '4px 8px';
+    deleteBtn.style.color = 'var(--danger, #dc2626)';
+    deleteBtn.innerHTML = '🗑️';
+    deleteBtn.title = 'Odebrat tým';
+    if (project.teams.length <= 2) {
+      deleteBtn.disabled = true;
+      deleteBtn.style.opacity = '0.25';
+      deleteBtn.style.cursor = 'not-allowed';
+      deleteBtn.title = 'Hra vyžaduje minimálně 2 týmy';
+    } else {
+      deleteBtn.addEventListener('click', () => {
+        if (project.teams.length <= 2) return;
+        const name = team.name || `Tým ${idx + 1}`;
+        if (confirm(`Opravdu chcete odebrat ${name}?`)) {
+          project.teams.splice(idx, 1);
+          if (project.gpx) {
+            const newGpx = {};
+            let nIdx = 0;
+            for (let oIdx = 0; oIdx < project.teams.length + 1; oIdx++) {
+              if (oIdx === idx) continue;
+              if (project.gpx[oIdx]) newGpx[nIdx] = project.gpx[oIdx];
+              nIdx++;
+            }
+            project.gpx = newGpx;
+          }
+          if (project.results?.sheets) {
+            delete project.results.sheets[idx];
+          }
+          saveProject(project);
+          refreshAllUI();
+        }
+      });
+    }
+
     row.appendChild(badge);
     row.appendChild(nameInput);
     row.appendChild(colorInput);
+    row.appendChild(deleteBtn);
     container.appendChild(row);
   });
+
+  const actionsDiv = document.createElement('div');
+  actionsDiv.style.display = 'flex';
+  actionsDiv.style.justifyContent = 'space-between';
+  actionsDiv.style.alignItems = 'center';
+  actionsDiv.style.marginTop = '10px';
+  actionsDiv.style.paddingTop = '8px';
+  actionsDiv.style.borderTop = '1px solid var(--border-color)';
+
+  const countInfo = document.createElement('span');
+  countInfo.style.fontSize = '12px';
+  countInfo.style.color = 'var(--text-muted)';
+  const n = project.teams.length;
+  countInfo.textContent = `Celkem ${n} ${n >= 5 ? 'týmů' : (n >= 2 ? 'týmy' : 'tým')} (podporováno 2 až 8)`;
+
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'btn btn-secondary btn-sm';
+  addBtn.id = 'btn-add-team';
+  addBtn.innerHTML = '➕ Přidat tým';
+  if (project.teams.length >= 8) {
+    addBtn.disabled = true;
+    addBtn.style.opacity = '0.4';
+    addBtn.style.cursor = 'not-allowed';
+    addBtn.title = 'Maximální počet týmů je 8';
+  } else {
+    addBtn.addEventListener('click', () => {
+      const nextIdx = project.teams.length;
+      const palette = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#d81b60', '#546e7a'];
+      project.teams.push({
+        name: `Tým ${nextIdx + 1}`,
+        color: palette[nextIdx % palette.length],
+      });
+      saveProject(project);
+      refreshAllUI();
+    });
+  }
+
+  actionsDiv.appendChild(countInfo);
+  actionsDiv.appendChild(addBtn);
+  container.appendChild(actionsDiv);
 }
 
 function syncLayoutChanges() {
@@ -699,6 +778,10 @@ function updatePrintTeamTabs() {
   if (!container) return;
 
   const teams = project.teams || [];
+  if (selectedPreviewTeam !== 'all' && Number(selectedPreviewTeam) >= teams.length) {
+    selectedPreviewTeam = 'all';
+  }
+
   let html = `<button type="button" class="btn btn-secondary btn-sm preview-team-tab ${selectedPreviewTeam === 'all' ? 'active' : ''}" data-team="all">Všechny archy</button>`;
   teams.forEach((t, i) => {
     const isAct = String(i) === selectedPreviewTeam;

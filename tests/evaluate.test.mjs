@@ -217,3 +217,61 @@ test('renderOverlay: vytvoří platný RGBA obrázek', () => {
   assert.equal(overlay.height, h);
   assert.equal(overlay.data.length, w * h * 4);
 });
+
+test('gameScore: přeskočí nevyhodnocovaný tým (prázdné kalibrační pole) a nepočítá ho do průměru', () => {
+  // Projekt nachystaný na 4 týmy, ale 4. tým nakonec nehrál
+  const project = {
+    teams: [
+      { name: 'T1', color: '#ff0000' },
+      { name: 'T2', color: '#0000ff' },
+      { name: 'T3', color: '#00ff00' },
+      { name: 'T4', color: '#ffff00' }, // nehrál
+    ]
+  };
+
+  // T1 stopoval T2 na 90, T3 na 70, a T4 neměl v chlívku fixu (skipped=true)
+  const sheetResults = {
+    0: {
+      team: 0,
+      perTeam: [
+        { team: 1, score: 90 },
+        { team: 2, score: 70 },
+        { team: 3, skipped: true, error: 'Nevyhodnocováno (prázdné kalibrační pole)', score: null },
+      ]
+    },
+    1: {
+      team: 1,
+      perTeam: [
+        { team: 0, score: 80 },
+        { team: 2, score: 60 },
+        { team: 3, skipped: true, error: 'Nevyhodnocováno (prázdné kalibrační pole)', score: null },
+      ]
+    },
+    2: {
+      team: 2,
+      perTeam: [
+        { team: 0, score: 60 },
+        { team: 1, score: 80 },
+        { team: 3, skipped: true, error: 'Nevyhodnocováno (prázdné kalibrační pole)', score: null },
+      ]
+    }
+  };
+
+  const tracks = {
+    0: { gapS: 0 },
+    1: { gapS: 0 },
+    2: { gapS: 0 },
+  };
+
+  const scores = gameScore(project, sheetResults, tracks);
+  const t1 = scores.find(s => s.team === 0);
+
+  // T1 tracking má být průměr jen z T2 a T3: (90 + 70) / 2 = 80 b (NIKOLIV děleno 3 na 53 b!)
+  assert.equal(t1.tracking, 80, 'Tracking průměruje pouze vyhodnocované týmy');
+  assert.equal(t1.evaluatedCount, 2);
+  assert.equal(t1.detail[3], null, 'Nevyhodnocovaný tým má detail null');
+
+  // Stealth pro T4: nikdo ho nestopoval, stealth je 0 (chybí trasa)
+  const t4 = scores.find(s => s.team === 3);
+  assert.equal(t4.stealth, 0);
+});

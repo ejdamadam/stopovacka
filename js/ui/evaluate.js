@@ -160,6 +160,7 @@ function persistResults(project, sheetResults, tracks, evalOpts, saveProject) {
         perTeam: (res.perTeam || []).map(p => ({
           team: p.team,
           score: p.score,
+          skipped: p.skipped || false,
           recall: p.recall,
           precision: p.precision,
           f1: p.f1,
@@ -524,7 +525,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
                         return `<td class="num-cell" style="color:var(--text-muted); background:#f9fafb;">—</td>`;
                       }
                       const score = r?.detail?.[j];
-                      return `<td class="num-cell">${score != null ? renderScoreBadge(score) : '<span style="color:var(--text-muted);">?</span>'}</td>`;
+                      return `<td class="num-cell">${score != null ? renderScoreBadge(score) : '<span style="color:var(--text-muted);" title="Tým nebyl na tomto archu stopován (prázdné kalibrační pole)">—</span>'}</td>`;
                     }).join('')}
                     <td class="num-cell" style="font-weight:700;">${r?.tracking != null ? `${r.tracking} b` : '—'}</td>
                   </tr>
@@ -734,9 +735,11 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
                       <td class="num-cell">${p.medianTrackErrM != null ? `${p.medianTrackErrM.toFixed(1)} m` : '—'}</td>
                       <td class="num-cell">${p.trackInMapFrac != null ? `${Math.round(p.trackInMapFrac * 100)} %` : '—'}</td>
                       <td>
-                        ${p.error
-                          ? `<span class="score-badge score-low" style="font-size:11px;">${p.error}</span>`
-                          : `<span class="score-badge score-high" style="font-size:11px;">OK</span>`}
+                        ${p.skipped
+                          ? `<span class="score-badge" style="font-size:11px; background:#f1f5f9; color:#64748b; font-weight:normal;" title="V kalibračním poli chybí čára – tým nebyl stopován">Nevyhodnocováno (prázdný chlívek)</span>`
+                          : (p.error
+                            ? `<span class="score-badge score-low" style="font-size:11px;">${p.error}</span>`
+                            : `<span class="score-badge score-high" style="font-size:11px;">OK</span>`)}
                       </td>
                     </tr>
                   `;
