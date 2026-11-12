@@ -739,9 +739,20 @@ function initStep3Print() {
     btnPrint.addEventListener('click', () => {
       updateDynamicPrintStyle();
       renderSheetsToPrintContainer(selectedPreviewTeam);
-      window.print();
+      // Krátká prodleva pro aplikaci CSS stylů a dokončení layoutu prohlížečem před otevřením dialogu tisku
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          window.print();
+        }, 100);
+      });
     });
   }
+
+  // Podpora i pro přímou klávesovou zkratku Ctrl+P / Cmd+P
+  window.addEventListener('beforeprint', () => {
+    updateDynamicPrintStyle();
+    renderSheetsToPrintContainer(selectedPreviewTeam);
+  });
 
   updatePrintTeamTabs();
 }
@@ -759,7 +770,7 @@ function updateDynamicPrintStyle() {
       @media print {
         @page {
           size: ${paper} ${orientation};
-          margin: 0 !important;
+          margin: 0;
         }
         .sheet {
           width: ${safeW}mm !important;
@@ -767,7 +778,7 @@ function updateDynamicPrintStyle() {
           max-height: ${safeH}mm !important;
           page-break-inside: avoid !important;
           break-inside: avoid !important;
-          overflow: hidden !important;
+          overflow: visible !important;
         }
         .sheet:last-child {
           page-break-after: avoid !important;

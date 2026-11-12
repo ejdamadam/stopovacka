@@ -516,7 +516,7 @@ body {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 0 !important;
+    margin: 0;
   }
 
   html, body {
@@ -541,6 +541,7 @@ body {
     display: block !important;
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
   }
 
   .sheet {
@@ -553,7 +554,7 @@ body {
     padding: 0 !important;
     box-sizing: border-box !important;
     box-shadow: none !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     page-break-after: always !important;

@@ -14,7 +14,7 @@
 // POZOR: po vytištění archů se layout nesmí měnit (vyhodnocení počítá pozice značek z layoutu).
 // Při změně zvyš LAYOUT_VERSION.
 
-export const LAYOUT_VERSION = 2;
+export const LAYOUT_VERSION = 3;
 
 export const PAPERS = { A4: { w: 210, h: 297 }, A3: { w: 297, h: 420 } };
 
@@ -61,11 +61,22 @@ export function lookupMarkerId(id) {
  * @param {number} o.calibCount      počet kalibračních polí (= počet cizích týmů, typicky 3)
  * @param {number} o.markerCount     počet značek (4 nebo 8, výchozí 8 pro vyšší odolnost v terénu)
  */
-export function computeLayout({ paper = 'A4', orientation = 'portrait', mapAspect = null, calibCount = 3, markerCount = 8 } = {}) {
+export function computeLayout(paperOrOpts = {}, orientation = 'portrait', mapAspect = null, calibCount = 3, markerCount = 8) {
+  let paper = 'A4';
+  if (typeof paperOrOpts === 'string') {
+    paper = paperOrOpts;
+  } else if (paperOrOpts && typeof paperOrOpts === 'object') {
+    paper = paperOrOpts.paper || 'A4';
+    orientation = paperOrOpts.orientation || 'portrait';
+    mapAspect = paperOrOpts.mapAspect !== undefined ? paperOrOpts.mapAspect : null;
+    calibCount = paperOrOpts.calibCount !== undefined ? paperOrOpts.calibCount : 3;
+    markerCount = paperOrOpts.markerCount !== undefined ? paperOrOpts.markerCount : 8;
+  }
+
   const P = PAPERS[paper] || PAPERS.A4;
   const w = orientation === 'landscape' ? P.h : P.w;
   const h = orientation === 'landscape' ? P.w : P.h;
-  const margin = 6;                                    // okraj papíru (tiskárny netisknou ~4–5 mm)
+  const margin = 10;                                   // bezpečný okraj papíru 10 mm (vyhovuje všem tiskárnám vč. AirPrint a nezkresluje tisk)
   const s = Math.round(Math.min(w, h) * (markerCount === 8 ? 0.075 : 0.09)); // A4: 16 mm (8 značek) nebo 19 mm (4 značky)
   const quiet = Math.max(2, Math.round(s / 7 * 1.2)); // bílá zóna kolem značky
 
