@@ -3,7 +3,7 @@
 
 import { layoutForProject, lookupMarkerId, markerCornersMm, calibSampleRect, foreignTeams } from './layout.js';
 import { detectMarkers } from './markers.js';
-import { solveHomography, warpSheet, downscale, applyH } from './homography.js';
+import { solveHomography, warpSheet, downscale, applyH, fitTPS } from './homography.js';
 import { makeGeoref, mapExtentMeters } from './geo.js';
 import { estimateWhite, whiteBalance, sampleInk, classifyInks, cleanMask, maskFromLabels } from './color.js';
 import { edt } from './edt.js';
@@ -62,24 +62,40 @@ export function registerPhoto(photo, layout, { detectMaxDim = DEFAULT_OPTS.detec
   const foreign = found.filter(m => m.info.team !== team);
   if (foreign.length) warnings.push(`Ignoruji ${foreign.length} značk(y) jiného týmu (na fotce je zřejmě i jiný arch).`);
   let ms = found.filter(m => m.info.team === team);
-  // každý roh nejvýš jednou
+  // každá pozice nejvýš jednou
   const seen = new Set();
-  ms = ms.filter(m => (seen.has(m.info.corner) ? false : (seen.add(m.info.corner), true)));
-  if (ms.length < 2) throw new Error(`Nalezena jen ${ms.length} značka týmu – potřeba aspoň 2 (ideálně všechny 4).`);
-  if (ms.length < 4) warnings.push(`Nalezeny jen ${ms.length} ze 4 značek – narovnání může být méně přesné.`);
+  ms = ms.filter(m => {
+    const key = m.info.role || m.info.corner;
+    return seen.has(key) ? false : (seen.add(key), true);
+  });
+  if (ms.length < 2) throw new Error(`Nalezena jen ${ms.length} značka týmu – potřeba aspoň 2 (ideálně 4–8).`);
+  if (ms.length < 4) warnings.push(`Nalezeny jen ${ms.length} značky – narovnání může být méně přesné.`);
 
   const src = [], dst = [];
   for (const m of ms) {
-    const mm = markerCornersMm(layout.markers[m.info.corner]);
+    const targetMarker = layout.markers.find(x => x.role === m.info.role) || (m.info.corner != null ? layout.markers[m.info.corner] : null);
+    if (!targetMarker) continue;
+    const mm = markerCornersMm(targetMarker);
     for (let k = 0; k < 4; k++) { src.push(mm[k]); dst.push(m.corners[k]); }
   }
   const { H, rms } = solveHomography(src, dst);
+
+  // Nelineární korekce pomačkání/zvlnění papíru (TPS) při dostatečném počtu značek (>= 5 značek)
+  let tps = null;
+  if (ms.length >= 5) {
+    const diffs = dst.map((d, i) => {
+      const p = applyH(H, src[i].x, src[i].y);
+      return { dx: d.x - p.x, dy: d.y - p.y };
+    });
+    tps = fitTPS(src, diffs);
+  }
+
   // přibližné měřítko fotky (px/mm) pro převod chyby na mm
   const a = applyH(H, 0, 0), b = applyH(H, layout.w, 0);
   const pxPerMm = Math.hypot(b.x - a.x, b.y - a.y) / layout.w;
   const rmsMm = rms / pxPerMm;
-  if (rmsMm > 1.5) warnings.push(`Velká chyba registrace (${rmsMm.toFixed(1)} mm) – arch je asi zvlněný nebo fotka rozmazaná.`);
-  return { team, H, rms, rmsMm, pxPerMm, markers: ms.map(m => ({ id: m.id, corner: m.info.corner, corners: m.corners })), warnings };
+  if (rmsMm > 1.8 && !tps) warnings.push(`Vyšší chyba registrace (${rmsMm.toFixed(1)} mm) – arch je asi zvlněný nebo fotka pod velkým úhlem.`);
+  return { team, H, tps, rms, rmsMm, pxPerMm, markers: ms.map(m => ({ id: m.id, role: m.info.role, corner: m.info.corner, corners: m.corners })), warnings };
 }
 
 /** Rasterizace lomené čáry (pole {x,y} v px, null = přerušení) do binární masky w×h. */
@@ -179,7 +195,7 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
   const reg = registerPhoto(photo, layout, { detectMaxDim: o.detectMaxDim, sheetTeam });
   const warnings = [...reg.warnings];
   if (reg.team >= nTeams) throw new Error(`Arch patří týmu č. ${reg.team + 1}, ale projekt má jen ${nTeams} týmy.`);
-  const raw = warpSheet(photo, reg.H, layout.w, layout.h, o.ppm);
+  const raw = warpSheet(photo, reg.H, layout.w, layout.h, o.ppm, reg.tps);
 
   // 2) vyvážení bílé podle papíru v mapovém poli
   const toPx = (r) => ({ x: Math.round(r.x * o.ppm), y: Math.round(r.y * o.ppm), w: Math.round(r.w * o.ppm), h: Math.round(r.h * o.ppm) });
@@ -205,7 +221,10 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
   // 4) klasifikace pixelů v mapovém poli (bez okraje s rámečkem)
   const inset = Math.round(o.mapInsetMm * o.ppm);
   const inner = { x: mapPx.x + inset, y: mapPx.y + inset, w: mapPx.w - 2 * inset, h: mapPx.h - 2 * inset };
-  const labels = classifyInks(rect, inner, validInks.map(x => ({ lab: x.ink.lab })), { minChroma: o.minChroma, maxDist: o.maxDist });
+  const isColorMap = project.mapPrintMode === 'color' || project.mapPrintMode === 'colorFaded';
+  const minChroma = o.minChroma ?? (isColorMap ? 18 : DEFAULT_OPTS.minChroma);
+  const maxDist = o.maxDist ?? (isColorMap ? 36 : DEFAULT_OPTS.maxDist);
+  const labels = classifyInks(rect, inner, validInks.map(x => ({ lab: x.ink.lab })), { minChroma, maxDist });
 
   // 5) porovnání s GPX pro každý cizí tým
   const ext = mapExtentMeters(georef);

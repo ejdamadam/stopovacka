@@ -1,6 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { softWeight, compareDrawing, prepareTrack, gameScore, renderOverlay } from '../js/core/evaluate.js';
+import { fitTPS, warpSheet } from '../js/core/homography.js';
+
+test('fitTPS: vyhlazení nelineární deformace / pomačkání papíru', () => {
+  const pts = [
+    { x: 10, y: 10 }, { x: 100, y: 10 }, { x: 200, y: 10 },
+    { x: 200, y: 150 }, { x: 200, y: 290 }, { x: 100, y: 290 },
+    { x: 10, y: 290 }, { x: 10, y: 150 }
+  ];
+  // Simulace prohnutí uprostřed o 8 px
+  const diffs = pts.map(p => ({
+    dx: p.x === 100 ? 8 : 0,
+    dy: p.y === 150 ? -6 : 0
+  }));
+
+  const tps = fitTPS(pts, diffs);
+  assert.equal(typeof tps, 'function');
+
+  // V uzlech musí TPS přesně odpovídat zadaným posunům (s tolerancí regularizace < 0.1 px)
+  const d1 = tps(100, 10);
+  assert(Math.abs(d1.dx - 8) < 0.1, `Očekáváno dx ~ 8, bylo ${d1.dx}`);
+  assert(Math.abs(d1.dy - 0) < 0.1, `Očekáváno dy ~ 0, bylo ${d1.dy}`);
+
+  const d2 = tps(10, 150);
+  assert(Math.abs(d2.dx - 0) < 0.1, `Očekáváno dx ~ 0, bylo ${d2.dx}`);
+  assert(Math.abs(d2.dy - (-6)) < 0.1, `Očekáváno dy ~ -6, bylo ${d2.dy}`);
+
+  // Uprostřed archu (100, 150) je plynulý přechod obou deformací
+  const mid = tps(100, 150);
+  assert(mid.dx > 2 && mid.dx < 7, `Středová deformace dx očekávána mezi 2 a 7, byla ${mid.dx}`);
+  assert(mid.dy < -2 && mid.dy > -6, `Středová deformace dy očekávána mezi -6 a -2, byla ${mid.dy}`);
+});
 
 test('softWeight: základní hodnoty a hraniční stavy', () => {
   assert.equal(softWeight(0, 50), 1);

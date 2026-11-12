@@ -12,6 +12,18 @@ Aplikace běží přímo v prohlížeči (optimální pro iPhone Safari i libovo
    - Zadejte název akce/hry.
    - Pojmenujte jednotlivé týmy (výchozí 4 týmy) a vyberte jejich rozlišovací barvy.
    - Zvolte formát papíru (**A4** nebo **A3**) a orientaci (**na výšku** / **na šířku**).
+   - **Barevnost tisku mapy**:
+     * *Šedotónová (doporučeno)*: maximální kontrast, barevné fixy z mapy jasně vystupují.
+     * *Tlumená barevná*: lesy zelené, voda modrá, ale barvy jsou ztlumené, aby fixy dominovaly.
+     * *Plnobarevná*: původní sytost mapy.
+   - **Korekční značky (ArUco)**:
+     * *8 značek (doporučeno)*: 4 v rozích + 4 ve středech hran. Umožňuje nelineární TPS narovnání pomačkaného nebo přeloženého papíru v terénu a je odolné i při zašpinění nebo utržení rohu.
+     * *4 značky*: klasické rohové značky.
+3. **Uložení a přenos projektu (PC → Mobil)**:
+   - Pokud mapu připravujete a tisknete na počítači předem a vyhodnocovat chcete v terénu na mobilu:
+   - V záložce „1. Projekt“ klepněte na **„Stáhnout projekt do souboru (.json)“**.
+   - Soubor si pošlete na telefon (AirDrop, WhatsApp, e-mail nebo iCloud/Google Drive).
+   - V den hry otevřete aplikaci na mobilu a klepněte na **„Nahrát projekt ze souboru“**. Vše se okamžitě načte.
 
 ---
 

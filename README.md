@@ -12,10 +12,10 @@ Webová aplikace pro organizaci a automatické vyhodnocení orientační hry „
 - Během hry týmy zakreslují spatřené trasy soupeřů do mapy.
 - Každý tým má zapnutý tracker v telefonu (např. Stopař z Mapy.cz), ze kterého po hře odevzdá GPX soubor své skutečné trasy.
 - Po skončení hry organizátor vyfotí jednotlivé archy telefonem. Aplikace automaticky:
-  1. Detekuje rohové ArUco značky a arch geometricky narovná (homografie).
+  1. Detekuje ArUco značky po obvodu (až 8 značek) a arch geometricky narovná (homografie + nelineární TPS korekce pomačkání a přehybů v terénu).
   2. Provede vyvážení bílé podle papíru.
   3. Zkalibruje barvy fix z kalibračních rámečků.
-  4. Vysegmentuje nakreslené čáry v mapě.
+  4. Vysegmentuje nakreslené čáry v mapě (podporuje šedotónový i barevný tisk mapy).
   5. Pomocí euklidovské distanční transformace (EDT) porovná nakreslené čáry s referenčními GPX trasami.
   6. Vypočítá skóre stopování, skóre utajení, penalizace za výpadky GPX a celkové pořadí.
 
@@ -24,6 +24,8 @@ Webová aplikace pro organizaci a automatické vyhodnocení orientační hry „
 ## Architektura a principy projektu
 
 - **Žádný build krok:** Čisté ES moduly (ESM), nulové npm závislosti pro běh aplikace. Funguje přímo přes statický webový server i z GitHub Pages.
+- **Přenositelnost projektu (PC → Mobil):** Možnost kdykoliv exportovat a importovat kompletní projekt ze souboru `.stopovacka.json` (příprava a tisk týden předem na PC, vyhodnocení v terénu na mobilu).
+- **Odolnost proti pomačkání papíru:** 8 ArUco značek po obvodu archu a nelineární korekce deformace (Thin-Plate Spline) spolehlivě vyrovnají lomy od přeložení v kapse i zvlnění papíru.
 - **Oddělení jádra od DOM:**
   - `js/core/*` je čistý JavaScript bez přístupu k DOM a oknu prohlížeče. Veškerá logika je unit-testovatelná přímo v Node.js (`node --test tests/`).
   - `js/ui/*` a `js/app.js` řeší interakci s uživatelem, Leaflet mapu, renderování canvasu a stav v `localStorage`.
@@ -34,14 +36,14 @@ Webová aplikace pro organizaci a automatické vyhodnocení orientační hry „
 | Modul | Popis |
 |---|---|
 | `js/core/geo.js` | Georeference (dlaždice WebMercator i afinní z vlícovacích bodů), parsování souřadnic, lokální metrická projekce |
-| `js/core/layout.js` | Rozvržení archu v milimetrech (papír A4/A3, pozice značek, mapového pole a kalibračních okének) |
+| `js/core/layout.js` | Rozvržení archu v milimetrech (papír A4/A3, 4 nebo 8 značek, mapové pole a kalibrační okénka) |
 | `js/core/markers.js` | Generování ArUco značek do SVG + detekce přes js-aruco |
-| `js/core/homography.js` | Výpočet homografie DLT, Hartleyho normalizace, bilineární zpětné vzorkování archu |
+| `js/core/homography.js` | Výpočet homografie DLT, nelineární TPS deformace (Thin-Plate Spline), bilineární zpětné vzorkování archu |
 | `js/core/color.js` | Převod sRGB $\to$ CIE Lab, vyvážení bílé, vzorkování inkoustu, klasifikace čar a morfologické čištění |
 | `js/core/edt.js` | Přesná 2D euklidovská distanční transformace (Felzenszwalb–Huttenlocher) |
 | `js/core/gpx.js` | Regexový GPX parser bez DOM (Mapy.cz, Strava, Garmin), detekce výpadků, převzorkování |
-| `js/core/evaluate.js` | Registrace fotky, segmentace čar, výpočet Recall/Precision/$F_1$, skóre hry a překryvný render |
-| `js/ui/sheet.js` | Tiskové rozvržení archu v mm, šedotónová mapa, SVG značky a kalibrační pole |
+| `js/core/evaluate.js` | Registrace fotky, TPS narovnání, segmentace čar, výpočet Recall/Precision/$F_1$, skóre hry a překryvný render |
+| `js/ui/sheet.js` | Tiskové rozvržení archu v mm, šedotónová i barevná mapa, SVG značky a kalibrační pole |
 | `js/ui/mapPicker.js` | Výběr výřezu dlaždicové mapy přes Leaflet (OpenTopoMap, Freemap, OSM) s tiskovým rámečkem |
 | `js/ui/evaluate.js` | UI pro nahrání fotek archů, spuštění analýzy, interaktivní overlay a tabulky výsledků |
 | `js/app.js` | Řízení stavu projektu, záložky aplikace, ukládání do `localStorage` |

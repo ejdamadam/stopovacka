@@ -37,7 +37,14 @@
         <h1>Stopovačka</h1>
         <span class="subtitle">Příprava hry &amp; tisk archů</span>
       </div>
-      <div id="project-status-badge" class="badge-status"></div>
+      <div class="header-actions" style="display:flex; align-items:center; gap:8px;">
+        <button type="button" id="btn-export-project-hdr" class="btn btn-secondary btn-sm" title="Uložit projekt do souboru (JSON)">💾 Uložit</button>
+        <label class="btn btn-secondary btn-sm" style="margin:0; cursor:pointer;" title="Otevřít dříve uložený projekt">
+          📂 Otevřít
+          <input type="file" id="file-import-project-hdr" accept=".json,.stopovacka" style="display:none;" />
+        </label>
+        <div id="project-status-badge" class="badge-status"></div>
+      </div>
     </div>
   </header>
 
@@ -58,8 +65,21 @@
     <!-- 1. ZÁLOŽKA: PROJEKT -->
     <section id="tab-project" class="tab-pane active">
       <div class="card">
-        <h2 class="card-title">Základní nastavení hry</h2>
-        <p class="card-desc">Nastavte název hry, formát papíru a 4 soutěžní týmy.</p>
+        <h2 class="card-title">💾 Uložení a přenos projektu</h2>
+        <p class="card-desc">Projekt se automaticky ukládá v tomto prohlížeči. Pro přenos na mobil nebo zálohu před akcí (např. příprava a tisk týden předem na PC a vyhodnocení v terénu na mobilu) si stáhněte soubor projektu.</p>
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; align-items:center;">
+          <button type="button" id="btn-export-project" class="btn btn-primary">📥 Stáhnout projekt do souboru (.json)</button>
+          <label class="btn btn-secondary" style="margin:0; cursor:pointer;">
+            📤 Nahrát projekt ze souboru
+            <input type="file" id="file-import-project" accept=".json,.stopovacka" style="display:none;" />
+          </label>
+          <button type="button" id="btn-new-project" class="btn btn-secondary btn-sm" style="margin-left:auto;">🔄 Nový projekt</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Základní nastavení hry a tisku</h2>
+        <p class="card-desc">Nastavte název hry, formát papíru, barevnost mapy a korekční značky.</p>
 
         <div class="form-grid">
           <div class="form-group">
@@ -80,6 +100,23 @@
             <select id="paper-orientation" class="form-control">
               <option value="portrait">Na výšku (portrait)</option>
               <option value="landscape">Na šířku (landscape)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="map-print-mode">Barevnost tisku mapy</label>
+            <select id="map-print-mode" class="form-control">
+              <option value="grayscale">Šedotónová (doporučeno pro snadné rozlišení fix)</option>
+              <option value="colorFaded">Tlumená barevná (světlejší podbarvení terénu)</option>
+              <option value="color">Plnobarevná</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="marker-grid">Korekční značky (odolnost proti pomačkání)</label>
+            <select id="marker-grid" class="form-control">
+              <option value="8">8 značek (doporučeno – 4 rohy + 4 středy hran proti zvlnění)</option>
+              <option value="4">4 značky (jen v rozích archu)</option>
             </select>
           </div>
         </div>

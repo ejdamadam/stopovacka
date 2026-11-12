@@ -1,34 +1,56 @@
 // Rozložení tištěného archu v milimetrech. (0,0) = levý horní roh papíru.
 //
+//  Arch s 8 značkami (odolný proti pomačkání a přeložení v terénu):
 //  ┌──────────────────────────────────────┐
-//  │ [TL]   název týmu + legenda barev [TR]│  ← horní pás (výška = velikost značky)
+//  │ [TL]   název týmu   [TC]  instrukce  [TR]│  ← horní pás (výška = velikost značky)
 //  │ ┌──────────────────────────────────┐ │
 //  │ │                                  │ │
-//  │ │          MAPOVÉ POLE             │ │  ← šedotónová mapa, sem se kreslí
+//  │[ML]        MAPOVÉ POLE            [MR]  ← šedotónová nebo barevná mapa
 //  │ │                                  │ │
 //  │ └──────────────────────────────────┘ │
-//  │ [BL] [kalib.1][kalib.2][kalib.3] [BR]│  ← dolní pás: kalibrační pole pro fixy
+//  │ [BL] [kalib.1][kalib.2] [BC] [kalib.3] [BR]│  ← dolní pás: kalibrační pole pro fixy
 //  └──────────────────────────────────────┘
 //
 // POZOR: po vytištění archů se layout nesmí měnit (vyhodnocení počítá pozice značek z layoutu).
 // Při změně zvyš LAYOUT_VERSION.
 
-export const LAYOUT_VERSION = 1;
+export const LAYOUT_VERSION = 2;
 
 export const PAPERS = { A4: { w: 210, h: 297 }, A3: { w: 297, h: 420 } };
 
-// 16 ID z původního ArUco slovníku: rotačně jednoznačná, vzájemná Hammingova vzdálenost ≥ 7
-// (ověřeno v tests/core.test.mjs přes pickMarkerIds(16, 7)). Tým t má ID MARKER_IDS[4t .. 4t+3]
-// v pořadí rohů TL, TR, BR, BL → z fotky se pozná, kterému týmu arch patří.
-export const MARKER_IDS = [1, 6, 24, 31, 42, 45, 51, 52, 75, 76, 82, 85, 96, 103, 121, 126];
+// 32 ID z původního ArUco slovníku: rotačně jednoznačná, vzájemná Hammingova vzdálenost ≥ 7
+// (16 pro rohové značky MARKER_IDS + 16 pro středové značky hran EDGE_IDS).
+export const CORNER_IDS = [1, 6, 24, 31, 42, 45, 51, 52, 75, 76, 82, 85, 96, 103, 121, 126];
+export const MARKER_IDS = CORNER_IDS;
+export const EDGE_IDS = [389, 394, 403, 412, 422, 432, 457, 479, 483, 492, 501, 642, 649, 660, 677, 703];
+export const ALL_MARKER_IDS = [...CORNER_IDS, ...EDGE_IDS];
+
 export const CORNERS = ['TL', 'TR', 'BR', 'BL'];
+export const ROLES_8 = ['TL', 'TC', 'TR', 'MR', 'BR', 'BC', 'BL', 'ML'];
 
-export function markerIdsForTeam(t) { return MARKER_IDS.slice(4 * t, 4 * t + 4); }
+export function markerIdsForTeam(t, markerCount = 4) {
+  const corners = CORNER_IDS.slice(4 * t, 4 * t + 4);
+  if (markerCount === 4) return corners;
+  const edges = EDGE_IDS.slice(4 * t, 4 * t + 4);
+  // Pořadí pro 8 značek po obvodu: TL, TC, TR, MR, BR, BC, BL, ML
+  return [corners[0], edges[0], corners[1], edges[1], corners[2], edges[2], corners[3], edges[3]];
+}
 
-/** Najde (tým, roh) podle ID značky, nebo null. */
+/** Najde (tým, roh/hrana) podle ID značky, nebo null. */
 export function lookupMarkerId(id) {
-  const i = MARKER_IDS.indexOf(id);
-  return i < 0 ? null : { team: Math.floor(i / 4), corner: i % 4 };
+  const ci = CORNER_IDS.indexOf(id);
+  if (ci >= 0) {
+    const team = Math.floor(ci / 4);
+    const corner = ci % 4;
+    return { team, corner, role: CORNERS[corner], isCorner: true };
+  }
+  const ei = EDGE_IDS.indexOf(id);
+  if (ei >= 0) {
+    const team = Math.floor(ei / 4);
+    const edge = ei % 4;
+    return { team, corner: null, edge, role: ['TC', 'MR', 'BC', 'ML'][edge], isCorner: false };
+  }
+  return null;
 }
 
 /**
@@ -37,39 +59,114 @@ export function lookupMarkerId(id) {
  * @param {'portrait'|'landscape'} o.orientation
  * @param {number|null} o.mapAspect  šířka/výška mapového obrázku; null = vyplnit celé dostupné pole
  * @param {number} o.calibCount      počet kalibračních polí (= počet cizích týmů, typicky 3)
+ * @param {number} o.markerCount     počet značek (4 nebo 8, výchozí 8 pro vyšší odolnost v terénu)
  */
-export function computeLayout({ paper = 'A4', orientation = 'portrait', mapAspect = null, calibCount = 3 } = {}) {
+export function computeLayout({ paper = 'A4', orientation = 'portrait', mapAspect = null, calibCount = 3, markerCount = 8 } = {}) {
   const P = PAPERS[paper] || PAPERS.A4;
   const w = orientation === 'landscape' ? P.h : P.w;
   const h = orientation === 'landscape' ? P.w : P.h;
-  const margin = 7;                                    // okraj papíru (tiskárny netisknou ~4–5 mm)
-  const s = Math.round(Math.min(w, h) * 0.09);         // velikost značky (A4: 19 mm, A3: 27 mm)
-  const quiet = s / 7 * 1.5;                           // bílá zóna kolem značky
-  const markers = [
-    { corner: 'TL', x: margin, y: margin },
-    { corner: 'TR', x: w - margin - s, y: margin },
-    { corner: 'BR', x: w - margin - s, y: h - margin - s },
-    { corner: 'BL', x: margin, y: h - margin - s },
-  ].map(m => ({ ...m, size: s, cx: m.x + s / 2, cy: m.y + s / 2 }));
+  const margin = 6;                                    // okraj papíru (tiskárny netisknou ~4–5 mm)
+  const s = Math.round(Math.min(w, h) * (markerCount === 8 ? 0.075 : 0.09)); // A4: 16 mm (8 značek) nebo 19 mm (4 značky)
+  const quiet = Math.max(2, Math.round(s / 7 * 1.2)); // bílá zóna kolem značky
+
+  const cornerMarkers = [
+    { role: 'TL', corner: 'TL', x: margin, y: margin },
+    { role: 'TR', corner: 'TR', x: w - margin - s, y: margin },
+    { role: 'BR', corner: 'BR', x: w - margin - s, y: h - margin - s },
+    { role: 'BL', corner: 'BL', x: margin, y: h - margin - s },
+  ];
+
+  let markersList = cornerMarkers;
+  if (markerCount === 8) {
+    const edgeMarkers = [
+      { role: 'TC', corner: null, x: Math.round((w - s) / 2), y: margin },
+      { role: 'MR', corner: null, x: w - margin - s, y: Math.round((h - s) / 2) },
+      { role: 'BC', corner: null, x: Math.round((w - s) / 2), y: h - margin - s },
+      { role: 'ML', corner: null, x: margin, y: Math.round((h - s) / 2) },
+    ];
+    // Pořadí 8 značek po obvodu: TL, TC, TR, MR, BR, BC, BL, ML
+    markersList = [
+      cornerMarkers[0], edgeMarkers[0], cornerMarkers[1], edgeMarkers[1],
+      cornerMarkers[2], edgeMarkers[2], cornerMarkers[3], edgeMarkers[3]
+    ];
+  }
+
+  const markers = markersList.map(m => ({ ...m, size: s, cx: m.x + s / 2, cy: m.y + s / 2 }));
 
   // dostupná plocha pro mapu
-  const avail = { x: margin, y: margin + s + quiet, w: w - 2 * margin, h: h - 2 * margin - 2 * s - 2 * quiet };
+  let avail;
+  if (markerCount === 8) {
+    avail = {
+      x: margin + s + quiet,
+      y: margin + s + quiet,
+      w: w - 2 * (margin + s + quiet),
+      h: h - 2 * (margin + s + quiet),
+    };
+  } else {
+    avail = {
+      x: margin,
+      y: margin + s + quiet,
+      w: w - 2 * margin,
+      h: h - 2 * margin - 2 * s - 2 * quiet,
+    };
+  }
+
   let mapRect = { ...avail };
   if (mapAspect && mapAspect > 0) {
-    if (mapAspect > avail.w / avail.h) { mapRect.h = avail.w / mapAspect; mapRect.y = avail.y + (avail.h - mapRect.h) / 2; }
-    else { mapRect.w = avail.h * mapAspect; mapRect.x = avail.x + (avail.w - mapRect.w) / 2; }
+    if (mapAspect > avail.w / avail.h) {
+      mapRect.h = avail.w / mapAspect;
+      mapRect.y = avail.y + (avail.h - mapRect.h) / 2;
+    } else {
+      mapRect.w = avail.h * mapAspect;
+      mapRect.x = avail.x + (avail.w - mapRect.w) / 2;
+    }
   }
 
   // hlavička mezi horními značkami
-  const header = { x: margin + s + quiet, y: margin, w: w - 2 * (margin + s + quiet), h: s };
+  let header;
+  if (markerCount === 8) {
+    const tcX = Math.round((w - s) / 2);
+    header = {
+      x: margin + s + quiet,
+      y: margin,
+      w: w - 2 * (margin + s + quiet),
+      h: s,
+      left: { x: margin + s + quiet, y: margin, w: tcX - quiet - (margin + s + quiet), h: s },
+      right: { x: tcX + s + quiet, y: margin, w: (w - margin - s - quiet) - (tcX + s + quiet), h: s }
+    };
+  } else {
+    header = { x: margin + s + quiet, y: margin, w: w - 2 * (margin + s + quiet), h: s };
+  }
 
   // kalibrační pole mezi dolními značkami
-  const cx0 = margin + s + quiet, cw = w - 2 * (margin + s + quiet), gap = 3;
-  const bw = (cw - gap * (calibCount - 1)) / calibCount;
   const calib = [];
-  for (let i = 0; i < calibCount; i++) calib.push({ x: cx0 + i * (bw + gap), y: h - margin - s, w: bw, h: s });
+  if (markerCount === 8) {
+    const bcX = Math.round((w - s) / 2);
+    const leftW = bcX - quiet - (margin + s + quiet);
+    const rightW = (w - margin - s - quiet) - (bcX + s + quiet);
+    const gap = 2.5;
 
-  return { version: LAYOUT_VERSION, paper, orientation, w, h, margin, markerSize: s, markers, avail, mapRect, header, calib };
+    // Rozdělíme calibCount mezi levou a pravou část od BC
+    const leftCount = Math.ceil(calibCount / 2);
+    const rightCount = calibCount - leftCount;
+
+    const lbw = (leftW - gap * (leftCount - 1)) / leftCount;
+    for (let i = 0; i < leftCount; i++) {
+      calib.push({ x: margin + s + quiet + i * (lbw + gap), y: h - margin - s, w: lbw, h: s });
+    }
+    if (rightCount > 0) {
+      const rbw = (rightW - gap * (rightCount - 1)) / rightCount;
+      for (let i = 0; i < rightCount; i++) {
+        calib.push({ x: bcX + s + quiet + i * (rbw + gap), y: h - margin - s, w: rbw, h: s });
+      }
+    }
+  } else {
+    const cx0 = margin + s + quiet, cw = w - 2 * (margin + s + quiet), gap = 3;
+    const bw = (cw - gap * (calibCount - 1)) / calibCount;
+    for (let i = 0; i < calibCount; i++) calib.push({ x: cx0 + i * (bw + gap), y: h - margin - s, w: bw, h: s });
+  }
+
+  return { version: LAYOUT_VERSION, paper, orientation, w, h, margin, markerSize: s, markerCount, markers, avail, mapRect, header, calib };
 }
 
 /** Poměr stran (šířka/výška) mapového obrázku podle definice georeference, nebo null. */
@@ -88,6 +185,7 @@ export function layoutForProject(project) {
     orientation: project.orientation || 'portrait',
     mapAspect: mapAspectOf(project.map && project.map.georef),
     calibCount: Math.max(1, (project.teams || []).length - 1),
+    markerCount: project.markerGrid === 4 ? 4 : 8,
   });
 }
 

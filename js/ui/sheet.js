@@ -61,25 +61,41 @@ export function renderSheetHtml(project, teamIdx) {
   const team = teams[teamIdx] || { name: `Tým ${teamIdx + 1}`, color: '#000000' };
   const layout = layoutForProject(project);
 
-  // 1. ArUco značky (4 rohy: TL, TR, BR, BL)
-  const markerIds = markerIdsForTeam(teamIdx);
+  // 1. ArUco značky (rohy + volitelně středy hran pro odolnost proti zvlnění)
+  const markerIds = markerIdsForTeam(teamIdx, layout.markers.length);
   const markersHtml = layout.markers.map((m, i) => {
     const id = markerIds[i];
     const svg = markerSvg(id, m.size);
-    return `<div class="sheet-marker sheet-marker-${m.corner.toLowerCase()}" style="position:absolute; left:${m.x}mm; top:${m.y}mm; width:${m.size}mm; height:${m.size}mm; line-height:0; pointer-events:none;">${svg}</div>`;
+    const roleCls = (m.role || m.corner || '').toLowerCase();
+    return `<div class="sheet-marker sheet-marker-${roleCls}" style="position:absolute; left:${m.x}mm; top:${m.y}mm; width:${m.size}mm; height:${m.size}mm; line-height:0; pointer-events:none;">${svg}</div>`;
   }).join('\n');
 
   // 2. Hlavička archu (mezi horními značkami)
   const header = layout.header;
-  const headerHtml = `
-    <div class="sheet-header" style="position:absolute; left:${header.x}mm; top:${header.y}mm; width:${header.w}mm; height:${header.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; box-sizing:border-box; padding:0 2mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-      <div style="font-size:4.8mm; font-weight:700; line-height:1.2; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
-        Arch týmu: <span style="text-decoration:underline; text-underline-offset:1mm;">${escapeHtml(team.name)}</span>
+  let headerHtml = '';
+  if (header.left && header.right) {
+    headerHtml = `
+      <div class="sheet-header sheet-header-left" style="position:absolute; left:${header.left.x}mm; top:${header.left.y}mm; width:${header.left.w}mm; height:${header.left.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; box-sizing:border-box; padding:0 1.5mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="font-size:4.2mm; font-weight:700; line-height:1.2; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
+          Arch týmu: <span style="text-decoration:underline; text-underline-offset:0.8mm;">${escapeHtml(team.name)}</span>
+        </div>
       </div>
-      <div style="font-size:2.6mm; color:#444; margin-top:0.8mm; line-height:1.2;">
-        Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou).
-      </div>
-    </div>`;
+      <div class="sheet-header sheet-header-right" style="position:absolute; left:${header.right.x}mm; top:${header.right.y}mm; width:${header.right.w}mm; height:${header.right.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:flex-end; text-align:right; box-sizing:border-box; padding:0 1.5mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="font-size:2.3mm; color:#444; line-height:1.2;">
+          Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou).
+        </div>
+      </div>`;
+  } else {
+    headerHtml = `
+      <div class="sheet-header" style="position:absolute; left:${header.x}mm; top:${header.y}mm; width:${header.w}mm; height:${header.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; box-sizing:border-box; padding:0 2mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="font-size:4.8mm; font-weight:700; line-height:1.2; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
+          Arch týmu: <span style="text-decoration:underline; text-underline-offset:1mm;">${escapeHtml(team.name)}</span>
+        </div>
+        <div style="font-size:2.6mm; color:#444; margin-top:0.8mm; line-height:1.2;">
+          Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou).
+        </div>
+      </div>`;
+  }
 
   // 3. Mapové pole (šedotónová mapa, měřítko, atribuce)
   const mapRect = layout.mapRect;
@@ -155,9 +171,17 @@ export function renderSheetHtml(project, teamIdx) {
       </div>`;
   }
 
+  const mapPrintMode = project.mapPrintMode || (project.map && project.map.printMode) || 'grayscale';
+  let mapFilter = 'filter:grayscale(1) contrast(.85) brightness(1.08);';
+  if (mapPrintMode === 'color') {
+    mapFilter = 'filter:contrast(.92) brightness(1.02);';
+  } else if (mapPrintMode === 'colorFaded') {
+    mapFilter = 'filter:saturate(0.60) contrast(.90) brightness(1.08);';
+  }
+
   const mapRectHtml = `
     <div class="sheet-map-box" style="position:absolute; left:${mapRect.x}mm; top:${mapRect.y}mm; width:${mapRect.w}mm; height:${mapRect.h}mm; box-sizing:border-box; border:0.25mm solid #000; overflow:hidden; background:#f0f0f0;">
-      <div class="sheet-map-content" style="position:absolute; left:0; top:0; width:100%; height:100%; filter:grayscale(1) contrast(.85) brightness(1.08); overflow:hidden;">
+      <div class="sheet-map-content" style="position:absolute; left:0; top:0; width:100%; height:100%; ${mapFilter} overflow:hidden;">
         ${mapContentHtml}
       </div>
       ${scaleBarHtml}

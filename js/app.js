@@ -23,6 +23,8 @@ function createDefaultProject() {
     ],
     paper: 'A4',
     orientation: 'portrait',
+    mapPrintMode: 'grayscale',
+    markerGrid: 8,
     map: null,
     game: {
       startMs: null,
@@ -55,7 +57,7 @@ export function saveProject(p) {
 }
 
 // Zpřístupnění pro konzoli i jiné skripty
-globalThis.Stopovacka = { getProject, saveProject };
+globalThis.Stopovacka = { getProject, saveProject, exportProjectFile, importProjectFile, newProjectPrompt };
 
 function loadProject() {
   try {
@@ -181,29 +183,135 @@ function initStep1Project() {
   const nameInput = document.getElementById('project-name');
   const paperSelect = document.getElementById('paper-format');
   const orientSelect = document.getElementById('paper-orientation');
+  const mapPrintModeSelect = document.getElementById('map-print-mode');
+  const markerGridSelect = document.getElementById('marker-grid');
   const teamsContainer = document.getElementById('teams-container');
 
-  nameInput.value = project.name || '';
-  nameInput.addEventListener('input', () => {
-    project.name = nameInput.value.trim() || 'Stopovačka';
-    saveProject(project);
-  });
+  if (nameInput) {
+    nameInput.value = project.name || '';
+    nameInput.oninput = () => {
+      project.name = nameInput.value.trim() || 'Stopovačka';
+      saveProject(project);
+    };
+  }
 
-  paperSelect.value = project.paper || 'A4';
-  paperSelect.addEventListener('change', () => {
-    project.paper = paperSelect.value;
-    saveProject(project);
-    syncLayoutChanges();
-  });
+  if (paperSelect) {
+    paperSelect.value = project.paper || 'A4';
+    paperSelect.onchange = () => {
+      project.paper = paperSelect.value;
+      saveProject(project);
+      syncLayoutChanges();
+    };
+  }
 
-  orientSelect.value = project.orientation || 'portrait';
-  orientSelect.addEventListener('change', () => {
-    project.orientation = orientSelect.value;
-    saveProject(project);
-    syncLayoutChanges();
-  });
+  if (orientSelect) {
+    orientSelect.value = project.orientation || 'portrait';
+    orientSelect.onchange = () => {
+      project.orientation = orientSelect.value;
+      saveProject(project);
+      syncLayoutChanges();
+    };
+  }
+
+  if (mapPrintModeSelect) {
+    mapPrintModeSelect.value = project.mapPrintMode || 'grayscale';
+    mapPrintModeSelect.onchange = () => {
+      project.mapPrintMode = mapPrintModeSelect.value;
+      saveProject(project);
+      syncLayoutChanges();
+    };
+  }
+
+  if (markerGridSelect) {
+    markerGridSelect.value = String(project.markerGrid || 8);
+    markerGridSelect.onchange = () => {
+      project.markerGrid = parseInt(markerGridSelect.value, 10);
+      saveProject(project);
+      syncLayoutChanges();
+    };
+  }
 
   renderTeamsList(teamsContainer);
+  initProjectFileActions();
+}
+
+let fileActionsInitialized = false;
+function initProjectFileActions() {
+  if (fileActionsInitialized) return;
+  fileActionsInitialized = true;
+
+  const btnExport = document.getElementById('btn-export-project');
+  const btnExportHdr = document.getElementById('btn-export-project-hdr');
+  if (btnExport) btnExport.addEventListener('click', exportProjectFile);
+  if (btnExportHdr) btnExportHdr.addEventListener('click', exportProjectFile);
+
+  const fileInput = document.getElementById('file-import-project');
+  const fileInputHdr = document.getElementById('file-import-project-hdr');
+  const handleFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) {
+      importProjectFile(file);
+      e.target.value = '';
+    }
+  };
+  if (fileInput) fileInput.addEventListener('change', handleFileChange);
+  if (fileInputHdr) fileInputHdr.addEventListener('change', handleFileChange);
+
+  const btnNew = document.getElementById('btn-new-project');
+  if (btnNew) btnNew.addEventListener('click', newProjectPrompt);
+}
+
+export function exportProjectFile() {
+  const jsonStr = JSON.stringify(project, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const safeName = (project.name || 'stopovacka').replace(/[^a-zA-Z0-9_\u00C0-\u017F-]+/g, '_').toLowerCase();
+  a.download = `${safeName}_${dateStr}.stopovacka.json`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+}
+
+export function importProjectFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => alert('Chyba při čtení souboru projektu.');
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || typeof data !== 'object') throw new Error('Neplatný formát souboru.');
+      if (!Array.isArray(data.teams) || data.teams.length < 2) throw new Error('Projekt neobsahuje platný seznam týmů.');
+      project = data;
+      saveProject(project);
+      refreshAllUI();
+      alert(`Projekt „${project.name}“ byl úspěšně načten!`);
+    } catch (err) {
+      alert('Chyba při načítání projektu: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+export function newProjectPrompt() {
+  if (confirm('Opravdu chcete vytvořit nový projekt? Aktuální data budou nahrazena výchozí šablonou (pokud chcete stávající data uchovat, nejdříve si je stáhněte přes „Uložit projekt“).')) {
+    project = createDefaultProject();
+    saveProject(project);
+    refreshAllUI();
+  }
+}
+
+function refreshAllUI() {
+  initStep1Project();
+  initStep2Map();
+  updatePrintPreview();
+  initStep4Game();
+  initStep5Evaluate();
 }
 
 function renderTeamsList(container) {
