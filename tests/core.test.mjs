@@ -13,6 +13,8 @@ import {
   mapExtentMeters,
   makeLocalProj,
   solveLinear,
+  STANDARD_SCALES,
+  snapToStandardScale,
 } from '../js/core/geo.js';
 
 import {
@@ -165,6 +167,31 @@ describe('Modul js/core/geo.js', () => {
 
     test('méně než 2 body vyhodí chybu', () => {
       assert.throws(() => makeGeoref({ type: 'affine', points: [{ u: 0, v: 0, lat: 50, lon: 14 }] }), /aspoň 2/);
+    });
+  });
+
+  describe('snapToStandardScale a STANDARD_SCALES', () => {
+    test('STANDARD_SCALES obsahuje běžná kartografická měřítka', () => {
+      assert.ok(STANDARD_SCALES.includes(5000));
+      assert.ok(STANDARD_SCALES.includes(10000));
+      assert.ok(STANDARD_SCALES.includes(15000));
+      assert.ok(STANDARD_SCALES.includes(25000));
+      assert.ok(STANDARD_SCALES.includes(50000));
+    });
+
+    test('zarovná blízké hodnoty na standardní měřítka (např. 10 012 -> 10 000)', () => {
+      assert.equal(snapToStandardScale(10012), 10000);
+      assert.equal(snapToStandardScale(9980), 10000);
+      assert.equal(snapToStandardScale(10450), 10000);
+      assert.equal(snapToStandardScale(14950), 15000);
+      assert.equal(snapToStandardScale(25010), 25000);
+      assert.equal(snapToStandardScale(49800), 50000);
+    });
+
+    test('zaokrouhlí mimo standardní měřítka na čistá čísla', () => {
+      assert.equal(snapToStandardScale(3610), 3500);
+      assert.equal(snapToStandardScale(8310), 8500);
+      assert.equal(snapToStandardScale(21120), 21000);
     });
   });
 });

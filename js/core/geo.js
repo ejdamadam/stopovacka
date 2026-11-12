@@ -165,3 +165,36 @@ export function mapExtentMeters(georef) {
     heightM: d(georef.toLatLon(0.5, 0), georef.toLatLon(0.5, 1)),
   };
 }
+
+// Běžná standardní měřítka v kartografii, turistice a orientačních hrách
+export const STANDARD_SCALES = [
+  2000, 3000, 4000, 5000, 7500, 10000, 12500, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000
+];
+
+/**
+ * Zaokrouhlí nebo zarovná libovolné měřítko na „normální“ kartografické číslo.
+ * Pokud je měřítko v toleranci (např. 5 %) od některého standardního měřítka, vrátí přesně toto měřítko.
+ * Jinak zaokrouhlí na čisté hezké číslo (po 250, 500, 1000 nebo 5000).
+ *
+ * @param {number} scale Vypočtené měřítko (např. 10012)
+ * @param {number} [tolerance=0.05] Relativní tolerance pro přitažení k standardnímu měřítku
+ * @returns {number} Čisté standardní nebo zaokrouhlené měřítko (např. 10000)
+ */
+export function snapToStandardScale(scale, tolerance = 0.05) {
+  if (!scale || scale <= 0 || !Number.isFinite(scale)) return 10000;
+  for (const s of STANDARD_SCALES) {
+    if (Math.abs(scale - s) / s <= tolerance) {
+      return s;
+    }
+  }
+  if (scale < 5000) {
+    return Math.round(scale / 250) * 250;
+  } else if (scale < 20000) {
+    return Math.round(scale / 500) * 500;
+  } else if (scale < 50000) {
+    return Math.round(scale / 1000) * 1000;
+  } else {
+    return Math.round(scale / 5000) * 5000;
+  }
+}
+

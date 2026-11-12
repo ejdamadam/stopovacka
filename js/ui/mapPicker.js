@@ -1,7 +1,13 @@
 // js/ui/mapPicker.js
 // Výběr výřezu dlaždicové mapy pomocí knihovny Leaflet.
 
-import { latLonToGlobalPx, makeGeoref, mapExtentMeters } from '../core/geo.js';
+import { latLonToGlobalPx, makeGeoref, mapExtentMeters, snapToStandardScale, STANDARD_SCALES } from '../core/geo.js';
+
+function formatScaleOption(s) {
+  const cmM = s / 100;
+  const cmText = cmM >= 1000 ? `${(cmM / 1000).toFixed(cmM % 1000 === 0 ? 0 : 1)} km` : `${Math.round(cmM)} m`;
+  return `1 : ${s.toLocaleString('cs-CZ')} (1 cm = ${cmText})`;
+}
 
 export const TILE_PRESETS = [
   {
@@ -87,10 +93,13 @@ export function openMapPicker(container, opts = {}) {
             </select>
           </label>
           <div style="display:flex; align-items:center; gap:5px; background:#fff; border:1px solid #bbb; border-radius:4px; padding:3px 6px;">
-            <span style="font-weight:600; font-size:13px; color:#333;">Zoom:</span>
-            <button type="button" class="btn-fine-zoom-out" style="width:24px; height:24px; border:1px solid #ccc; border-radius:3px; background:#f4f4f4; cursor:pointer; font-weight:bold; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; user-select:none;" title="Jemné oddálení (−0.25)">−</button>
-            <span class="map-picker-current-zoom" style="font-size:13px; font-weight:700; color:#1a73e8; min-width:32px; text-align:center;">${initZoom.toFixed(1)}</span>
-            <button type="button" class="btn-fine-zoom-in" style="width:24px; height:24px; border:1px solid #ccc; border-radius:3px; background:#f4f4f4; cursor:pointer; font-weight:bold; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; user-select:none;" title="Jemné přiblížení (+0.25)">+</button>
+            <span style="font-weight:600; font-size:13px; color:#333;">Měřítko:</span>
+            <button type="button" class="btn-scale-step-out" style="width:24px; height:24px; border:1px solid #ccc; border-radius:3px; background:#f4f4f4; cursor:pointer; font-weight:bold; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; user-select:none;" title="Zmenšit měřítko / oddálit (např. 1:15 000)">−</button>
+            <select class="map-picker-scale-select" style="padding:2px 6px; border:1px solid #bbb; border-radius:3px; background:#fff; font-size:13px; font-weight:600; color:#1a73e8; cursor:pointer;">
+              ${STANDARD_SCALES.map(s => `<option value="${s}">${formatScaleOption(s)}</option>`).join('')}
+              <option value="custom" disabled hidden>Vlastní měřítko</option>
+            </select>
+            <button type="button" class="btn-scale-step-in" style="width:24px; height:24px; border:1px solid #ccc; border-radius:3px; background:#f4f4f4; cursor:pointer; font-weight:bold; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; user-select:none;" title="Zvětšit měřítko / přiblížit (např. 1:7 500)">+</button>
           </div>
           <label style="display:flex; align-items:center; gap:6px;">
             <span style="font-weight:600; font-size:13px; color:#333;">Tiskový detail:</span>
@@ -134,36 +143,19 @@ export function openMapPicker(container, opts = {}) {
   const zoomSelect = container.querySelector('.map-picker-zoom-select');
   const scaleEl = container.querySelector('.map-picker-scale');
   const extentEl = container.querySelector('.map-picker-extent');
-  const currentZoomEl = container.querySelector('.map-picker-current-zoom');
-  const btnFineZoomOut = container.querySelector('.btn-fine-zoom-out');
-  const btnFineZoomIn = container.querySelector('.btn-fine-zoom-in');
+  const scaleSelect = container.querySelector('.map-picker-scale-select');
+  const btnScaleStepOut = container.querySelector('.btn-scale-step-out');
+  const btnScaleStepIn = container.querySelector('.btn-scale-step-in');
 
-  // Inicializace Leaflet mapy s jemným plynulým zoomováním (krok 0.1/0.25 místo celých čísel)
+  // Inicializace Leaflet mapy s plynulým zoomováním umožňujícím přesné standardní měřítko
   const map = L.map(mapEl, {
     center: [initLat, initLon],
     zoom: initZoom,
-    zoomSnap: 0.1,             // Jemný krok pro plynulý posun měřítka
-    zoomDelta: 0.25,           // Tlačítka +/- krokují po 0.25
+    zoomSnap: 0,               // Plynulý zoom pro přesné nastavení standardních měřítek
     wheelPxPerZoomLevel: 120,  // Plynulejší zoomování kolečkem myši / trackpadem
     zoomControl: true,
     attributionControl: false  // vlastní atribuce v panelu a archu
   });
-
-  if (btnFineZoomOut) {
-    btnFineZoomOut.addEventListener('click', (e) => {
-      e.preventDefault();
-      const nextZoom = Math.max(1, Math.round((map.getZoom() - 0.25) * 10) / 10);
-      map.setZoom(nextZoom);
-    });
-  }
-
-  if (btnFineZoomIn) {
-    btnFineZoomIn.addEventListener('click', (e) => {
-      e.preventDefault();
-      const nextZoom = Math.min(19, Math.round((map.getZoom() + 0.25) * 10) / 10);
-      map.setZoom(nextZoom);
-    });
-  }
 
   let currentTileLayer = null;
 
@@ -236,25 +228,95 @@ export function openMapPicker(container, opts = {}) {
     return { type: 'tiles', z: zoomVal, px0, py0, px1, py1 };
   }
 
-  function updateInfo() {
-    if (currentZoomEl && map) {
-      currentZoomEl.textContent = map.getZoom().toFixed(1);
-    }
+  // Spočítá zoom úroveň pro přesné cílové měřítko (např. 10 000)
+  function zoomForScale(targetScale) {
+    const center = map.getCenter();
+    const lat = center ? center.lat : initLat;
+    const paperM = printWidthMm / 1000;
+    // EPSG:3857 konstanta: (2 * PI * 6378137) / 256 = 156543.033928
+    const constM = 156543.03392804097;
+    const bw = (box && box.width > 0) ? box.width : ((mapWrap.clientWidth || 400) * 0.82);
+    const cosLat = Math.cos(lat * (Math.PI / 180));
+    const z = Math.log2((bw * constM * cosLat) / (paperM * targetScale));
+    return Math.max(1, Math.min(19, z));
+  }
 
+  function getCurrentRawScale() {
     const georef = getGeoref(currentPrintZoom);
     try {
       const geo = makeGeoref(georef);
       const extent = mapExtentMeters(geo);
-      const scale = Math.round((extent.widthM * 1000) / printWidthMm);
-      const cmM = scale / 100;
+      return (extent.widthM * 1000) / printWidthMm;
+    } catch (e) {
+      return 10000;
+    }
+  }
+
+  if (btnScaleStepIn) {
+    btnScaleStepIn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const currentScale = getCurrentRawScale();
+      // Krok k většímu detailu (menší číslo měřítka, např. 15 000 -> 10 000)
+      const smaller = STANDARD_SCALES.filter(s => s < currentScale - 50);
+      const target = smaller.length > 0 ? smaller[smaller.length - 1] : STANDARD_SCALES[0];
+      map.setZoom(zoomForScale(target));
+    });
+  }
+
+  if (btnScaleStepOut) {
+    btnScaleStepOut.addEventListener('click', (e) => {
+      e.preventDefault();
+      const currentScale = getCurrentRawScale();
+      // Krok k většímu území (větší číslo měřítka, např. 10 000 -> 15 000)
+      const larger = STANDARD_SCALES.filter(s => s > currentScale + 50);
+      const target = larger.length > 0 ? larger[0] : STANDARD_SCALES[STANDARD_SCALES.length - 1];
+      map.setZoom(zoomForScale(target));
+    });
+  }
+
+  if (scaleSelect) {
+    scaleSelect.addEventListener('change', (e) => {
+      const target = Number(e.target.value);
+      if (target && target > 0) {
+        map.setZoom(zoomForScale(target));
+      }
+    });
+  }
+
+  function updateInfo() {
+    const georef = getGeoref(currentPrintZoom);
+    try {
+      const geo = makeGeoref(georef);
+      const extent = mapExtentMeters(geo);
+      const rawScale = (extent.widthM * 1000) / printWidthMm;
+      const snappedScale = snapToStandardScale(rawScale);
+
+      if (scaleSelect) {
+        const isStandard = STANDARD_SCALES.includes(snappedScale) && (Math.abs(rawScale - snappedScale) / snappedScale <= 0.05);
+        if (isStandard) {
+          scaleSelect.value = String(snappedScale);
+        } else {
+          let customOpt = scaleSelect.querySelector('option[value="custom"]');
+          if (customOpt) {
+            customOpt.textContent = `Vlastní (1 : ${snappedScale.toLocaleString('cs-CZ')})`;
+            scaleSelect.value = 'custom';
+          }
+        }
+      }
+
+      const cmM = snappedScale / 100;
       const cmText = cmM >= 1000
         ? `${(cmM / 1000).toFixed(cmM % 1000 === 0 ? 0 : 1)} km`
         : `${Math.round(cmM)} m`;
 
-      scaleEl.textContent = `Měřítko tisku: 1 : ${scale.toLocaleString('cs-CZ')} (1 cm = ${cmText})`;
-      const wKm = (extent.widthM / 1000).toFixed(1);
-      const hKm = (extent.heightM / 1000).toFixed(1);
-      extentEl.textContent = `(cca ${wKm} × ${hKm} km v terénu)`;
+      if (scaleEl) {
+        scaleEl.textContent = `Měřítko tisku: 1 : ${snappedScale.toLocaleString('cs-CZ')} (1 cm = ${cmText})`;
+      }
+      if (extentEl) {
+        const wKm = (extent.widthM / 1000).toFixed(1);
+        const hKm = (extent.heightM / 1000).toFixed(1);
+        extentEl.textContent = `(cca ${wKm} × ${hKm} km v terénu)`;
+      }
 
       if (typeof opts.onChange === 'function') {
         opts.onChange({
@@ -262,7 +324,7 @@ export function openMapPicker(container, opts = {}) {
           tileUrl: currentTileUrl,
           attribution: currentAttribution,
           printZoom: currentPrintZoom,
-          scale,
+          scale: snappedScale,
           extent
         });
       }
@@ -312,6 +374,11 @@ export function openMapPicker(container, opts = {}) {
     },
     getSelectedPreset() {
       return currentPreset;
+    },
+    setScale(targetScale) {
+      if (targetScale && targetScale > 0) {
+        map.setZoom(zoomForScale(targetScale));
+      }
     },
     updateAspect(newAspect, newPrintWidthMm) {
       if (newAspect && newAspect > 0) aspect = newAspect;

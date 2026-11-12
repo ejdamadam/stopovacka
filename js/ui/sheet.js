@@ -4,7 +4,7 @@
 
 import { layoutForProject, foreignTeams, calibSampleRect, markerIdsForTeam } from '../core/layout.js';
 import { markerSvg } from '../core/markers.js';
-import { makeGeoref, mapExtentMeters } from '../core/geo.js';
+import { makeGeoref, mapExtentMeters, snapToStandardScale } from '../core/geo.js';
 
 // Re-export pro vyhodnocovací modul a ostatní UI části
 export { foreignTeams };
@@ -140,9 +140,10 @@ export function renderSheetHtml(project, teamIdx) {
       const extent = mapExtentMeters(georef);
       if (extent.widthM > 0 && mapRect.w > 0) {
         const paperM = mapRect.w / 1000;
-        const scaleNum = Math.round(extent.widthM / paperM);
-        const barM = niceBarLength(extent.widthM);
-        const barMm = (barM / extent.widthM) * mapRect.w;
+        const rawScale = extent.widthM / paperM;
+        const scaleNum = snapToStandardScale(rawScale);
+        const barM = niceBarLength(scaleNum * paperM);
+        const barMm = (barM / scaleNum) * 1000;
 
         // Poměr pro převod 1 cm na mapě na metry v terénu
         const cmM = scaleNum / 100;
