@@ -198,6 +198,11 @@ function switchTab(tabId) {
       const layout = layoutForProject(project);
       const aspect = layout.avail.w / layout.avail.h;
       mapPickerInstance.updateAspect(aspect, layout.mapRect.w);
+      setTimeout(() => {
+        if (mapPickerInstance && typeof mapPickerInstance.invalidateSize === 'function') {
+          mapPickerInstance.invalidateSize();
+        }
+      }, 50);
     }
   } else if (tabId === 'tab-print') {
     updatePrintPreview();

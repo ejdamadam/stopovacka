@@ -59,6 +59,22 @@ export function openMapPicker(container, opts = {}) {
   let currentTileUrl = opts.tileUrl || currentPreset.url;
   let currentAttribution = opts.attribution || currentPreset.attribution;
 
+  // Výchozí souřadnice středu a zoom
+  let initLat = 49.8;
+  let initLon = 15.4;
+  let initZoom = 14;
+
+  if (opts.initialCenter) {
+    if (Array.isArray(opts.initialCenter) && opts.initialCenter.length >= 2) {
+      initLat = opts.initialCenter[0];
+      initLon = opts.initialCenter[1];
+    } else if (opts.initialCenter.lat != null && opts.initialCenter.lon != null) {
+      initLat = opts.initialCenter.lat;
+      initLon = opts.initialCenter.lon;
+      if (opts.initialCenter.zoom) initZoom = opts.initialCenter.zoom;
+    }
+  }
+
   // Vyčistit kontejner a připravit HTML strukturu
   container.innerHTML = `
     <div class="map-picker-root" style="display:flex; flex-direction:column; width:100%; height:100%; min-height:420px; box-sizing:border-box;">
@@ -121,22 +137,6 @@ export function openMapPicker(container, opts = {}) {
   const currentZoomEl = container.querySelector('.map-picker-current-zoom');
   const btnFineZoomOut = container.querySelector('.btn-fine-zoom-out');
   const btnFineZoomIn = container.querySelector('.btn-fine-zoom-in');
-
-  // Výchozí souřadnice středu
-  let initLat = 49.8;
-  let initLon = 15.4;
-  let initZoom = 14;
-
-  if (opts.initialCenter) {
-    if (Array.isArray(opts.initialCenter) && opts.initialCenter.length >= 2) {
-      initLat = opts.initialCenter[0];
-      initLon = opts.initialCenter[1];
-    } else if (opts.initialCenter.lat != null && opts.initialCenter.lon != null) {
-      initLat = opts.initialCenter.lat;
-      initLon = opts.initialCenter.lon;
-      if (opts.initialCenter.zoom) initZoom = opts.initialCenter.zoom;
-    }
-  }
 
   // Inicializace Leaflet mapy s jemným plynulým zoomováním (krok 0.1/0.25 místo celých čísel)
   const map = L.map(mapEl, {
@@ -316,6 +316,12 @@ export function openMapPicker(container, opts = {}) {
     updateAspect(newAspect, newPrintWidthMm) {
       if (newAspect && newAspect > 0) aspect = newAspect;
       if (newPrintWidthMm && newPrintWidthMm > 0) printWidthMm = newPrintWidthMm;
+      map.invalidateSize();
+      updateOverlaySize();
+      updateInfo();
+    },
+    invalidateSize() {
+      map.invalidateSize();
       updateOverlaySize();
       updateInfo();
     },
