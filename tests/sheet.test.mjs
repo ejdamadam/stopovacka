@@ -49,10 +49,9 @@ test('renderSheetHtml: vygeneruje platný HTML arch s požadovanými prvky', () 
   assert.ok(html.includes('sheet-marker-br'));
   assert.ok(html.includes('sheet-marker-bl'));
 
-  // 2. Hlavička
-  assert.ok(html.includes('Arch týmu:'));
-  assert.ok(html.includes('Lišky'));
-  assert.ok(html.includes('Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou).'));
+  // 2. Hlavička bez popisu „Arch týmu:“ a bez instrukcí
+  assert.ok(!html.includes('Arch týmu:'));
+  assert.ok(!html.includes('Zakresluj trasy ostatních týmů'));
 
   // 3. Mapové pole se šedotónovým filtrem
   assert.ok(html.includes('sheet-map-box'));

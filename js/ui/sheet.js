@@ -177,32 +177,8 @@ export function renderSheetHtml(project, teamIdx) {
     return `<div class="sheet-marker sheet-marker-${roleCls}" style="position:absolute; left:${m.x}mm; top:${m.y}mm; width:${m.size}mm; height:${m.size}mm; line-height:0; pointer-events:none;">${svg}</div>`;
   }).join('\n');
 
-  // 2. Hlavička archu (mezi horními značkami)
-  const header = layout.header;
-  let headerHtml = '';
-  if (header.left && header.right) {
-    headerHtml = `
-      <div class="sheet-header sheet-header-left" style="position:absolute; left:${header.left.x}mm; top:${header.left.y}mm; width:${header.left.w}mm; height:${header.left.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; box-sizing:border-box; padding:0 1.5mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-        <div style="font-size:4.2mm; font-weight:700; line-height:1.2; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
-          Arch týmu: <span style="text-decoration:underline; text-underline-offset:0.8mm;">${escapeHtml(team.name)}</span>
-        </div>
-      </div>
-      <div class="sheet-header sheet-header-right" style="position:absolute; left:${header.right.x}mm; top:${header.right.y}mm; width:${header.right.w}mm; height:${header.right.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:flex-end; text-align:right; box-sizing:border-box; padding:0 1.5mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-        <div style="font-size:2.3mm; color:#444; line-height:1.2;">
-          Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou). Při souběhu kresli čáry vedle sebe (~1 mm).
-        </div>
-      </div>`;
-  } else {
-    headerHtml = `
-      <div class="sheet-header" style="position:absolute; left:${header.x}mm; top:${header.y}mm; width:${header.w}mm; height:${header.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; box-sizing:border-box; padding:0 2mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-        <div style="font-size:4.8mm; font-weight:700; line-height:1.2; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
-          Arch týmu: <span style="text-decoration:underline; text-underline-offset:1mm;">${escapeHtml(team.name)}</span>
-        </div>
-        <div style="font-size:2.6mm; color:#444; margin-top:0.8mm; line-height:1.2;">
-          Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou). Při souběhu kresli čáry vedle sebe (~1 mm).
-        </div>
-      </div>`;
-  }
+  // 2. Hlavička archu záměrně prázdná (instrukce týmy dostávají před začátkem hry)
+  const headerHtml = '';
 
   // 3. Mapové pole (šedotónová mapa, měřítko, atribuce)
   const mapRect = layout.mapRect;
