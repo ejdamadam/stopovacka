@@ -277,3 +277,124 @@ export function resample(points, stepM, gapOpts = {}) {
 
   return result;
 }
+
+/**
+ * Potlačení šumu / plavání GPS signálu při stání na místě.
+ * Body v okruhu radiusM od aktuální kotvy se přichytí k její poloze se zachováním času,
+ * takže stání na místě nenakumuluje fiktivní vzdálenost a nevytvoří falešný časový výpadek.
+ *
+ * @param {Array<{lat: number, lon: number, ele?: number|null, time?: number|null}>} points
+ * @param {{radiusM?: number}} [opts]
+ * @returns {Array<{lat: number, lon: number, ele?: number|null, time?: number|null}>}
+ */
+export function filterJitter(points, { radiusM = 15 } = {}) {
+  if (!Array.isArray(points)) return [];
+  if (points.length <= 1 || !(radiusM > 0)) {
+    return points.map(p => ({ ...p }));
+  }
+
+  let anchor = points[0];
+  const out = [{ ...anchor }];
+
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i];
+    const d = haversine(anchor, p);
+    if (d >= radiusM) {
+      anchor = p;
+      out.push({ ...p });
+    } else {
+      out.push({ ...p, lat: anchor.lat, lon: anchor.lon });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Kontrola průchodu GPX trasy zadanými kontrolními body (body povinného průchodu).
+ * Kontroluje vzdálenost k bodům trasy i k souvislým úsečkám (mimo výpadky a délky <= 200 m).
+ *
+ * @param {Array<{lat: number, lon: number, time?: number|null, gap?: boolean}>} points
+ * @param {Array<{id?: string, name?: string, lat: number, lon: number, radiusM?: number}>} checkpoints
+ * @param {{defaultRadiusM?: number}} [opts]
+ * @returns {Array<{id: *, name: string, lat: number, lon: number, radiusM: number, passed: boolean, minDistM: number|null, reachedAt: number|null}>}
+ */
+export function checkCheckpoints(points, checkpoints, { defaultRadiusM = 50 } = {}) {
+  if (!Array.isArray(checkpoints) || checkpoints.length === 0) return [];
+
+  const validInput = Array.isArray(points) && points.length > 0;
+
+  return checkpoints.map(cp => {
+    const radiusM = Number(cp.radiusM) > 0 ? Number(cp.radiusM) : defaultRadiusM;
+    const base = {
+      id: cp.id,
+      name: cp.name || 'Kontrola',
+      lat: cp.lat,
+      lon: cp.lon,
+      radiusM,
+    };
+
+    if (!validInput || !Number.isFinite(cp.lat) || !Number.isFinite(cp.lon)) {
+      return { ...base, passed: false, minDistM: null, reachedAt: null };
+    }
+
+    const cosLat = Math.cos(cp.lat * D2R);
+    const toXY = (p) => ({
+      x: EARTH_R * (p.lon - cp.lon) * D2R * cosLat,
+      y: EARTH_R * (p.lat - cp.lat) * D2R,
+    });
+
+    let minDistM = Infinity;
+    let reachedAt = null;
+
+    // Kontrola vzdálenosti ke všem platným bodům trasy
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      if (!p || p.gap) continue;
+      const d = haversine(cp, p);
+      if (d < minDistM) {
+        minDistM = d;
+        reachedAt = p.time ?? null;
+      }
+    }
+
+    // Kontrola kolmé vzdálenosti k souvislým úsečkám mezi body (<= 200 m, bez výpadků)
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      if (!a || !b || a.gap || b.gap) continue;
+      const segLen = haversine(a, b);
+      if (segLen > 200) continue;
+
+      const A = toXY(a);
+      const B = toXY(b);
+      const dx = B.x - A.x;
+      const dy = B.y - A.y;
+      const len2 = dx * dx + dy * dy;
+      let t = 0;
+      if (len2 > 1e-9) {
+        t = Math.max(0, Math.min(1, -(A.x * dx + A.y * dy) / len2));
+      }
+      const d = Math.hypot(A.x + t * dx, A.y + t * dy);
+      if (d < minDistM) {
+        minDistM = d;
+        if (a.time != null && b.time != null) {
+          reachedAt = Math.round(a.time + t * (b.time - a.time));
+        } else {
+          reachedAt = a.time ?? b.time ?? null;
+        }
+      }
+    }
+
+    if (!Number.isFinite(minDistM)) {
+      return { ...base, passed: false, minDistM: null, reachedAt: null };
+    }
+
+    return {
+      ...base,
+      passed: minDistM <= radiusM,
+      minDistM,
+      reachedAt,
+    };
+  });
+}

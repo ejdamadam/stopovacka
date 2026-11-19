@@ -3,6 +3,7 @@
 
 import { layoutForProject } from './core/layout.js';
 import { makeGeoref, parseLatLon } from './core/geo.js';
+import { parseGpx, filterByTime, checkCheckpoints, findGaps, trackLength, filterJitter } from './core/gpx.js';
 import { renderSheetHtml, renderMapToCanvas } from './ui/sheet.js';
 import { openMapPicker } from './ui/mapPicker.js';
 
@@ -14,7 +15,7 @@ const STORAGE_KEY = 'stopovacka.project.v1';
 function createDefaultProject() {
   return {
     version: 1,
-    name: 'Jarní stopovačka 2026',
+    name: 'Zrádci 2026',
     teams: [
       { name: 'Tým 1', color: '#e53935' },
       { name: 'Tým 2', color: '#1e88e5' },
@@ -30,6 +31,7 @@ function createDefaultProject() {
       startMs: null,
       endMs: null
     },
+    checkpoints: [],
     gpx: {}
   };
 }
@@ -65,6 +67,7 @@ function loadProject() {
     if (raw) {
       const data = JSON.parse(raw);
       if (data && data.version === 1) {
+        data.markerGrid = 8;
         return data;
       }
     }
@@ -157,10 +160,10 @@ function initOfflineSupport() {
   const updateBadge = () => {
     if (!badge) return;
     if (navigator.onLine) {
-      badge.textContent = '🟢 Online';
+      badge.textContent = 'Online';
       badge.title = 'Aplikace je připojena k síti a uložena v offline mezipaměti.';
     } else {
-      badge.textContent = '✈️ Offline';
+      badge.textContent = 'Offline';
       badge.title = 'Běží v offline režimu – vyhodnocení archů a analýza funguje bez internetu.';
     }
   };
@@ -206,6 +209,9 @@ function switchTab(tabId) {
     }
   } else if (tabId === 'tab-print') {
     updatePrintPreview();
+  } else if (tabId === 'tab-game') {
+    renderGpxTeamsList(document.getElementById('gpx-teams-container'));
+    renderCheckpointsSection();
   }
 }
 
@@ -217,7 +223,6 @@ function initStep1Project() {
   const paperSelect = document.getElementById('paper-format');
   const orientSelect = document.getElementById('paper-orientation');
   const mapPrintModeSelect = document.getElementById('map-print-mode');
-  const markerGridSelect = document.getElementById('marker-grid');
   const teamsContainer = document.getElementById('teams-container');
 
   if (nameInput) {
@@ -253,15 +258,6 @@ function initStep1Project() {
     mapPrintModeSelect.onchange = () => {
       project.mapPrintMode = mapPrintModeSelect.value;
       if (project.map) delete project.map.renderedDataUrl;
-      saveProject(project);
-      syncLayoutChanges();
-    };
-  }
-
-  if (markerGridSelect) {
-    markerGridSelect.value = String(project.markerGrid || 8);
-    markerGridSelect.onchange = () => {
-      project.markerGrid = parseInt(markerGridSelect.value, 10);
       saveProject(project);
       syncLayoutChanges();
     };
@@ -390,7 +386,7 @@ function renderTeamsList(container) {
     deleteBtn.className = 'btn btn-ghost btn-sm';
     deleteBtn.style.padding = '4px 8px';
     deleteBtn.style.color = 'var(--danger, #dc2626)';
-    deleteBtn.innerHTML = '🗑️';
+    deleteBtn.textContent = 'Odebrat';
     deleteBtn.title = 'Odebrat tým';
     if (project.teams.length <= 2) {
       deleteBtn.disabled = true;
@@ -447,7 +443,7 @@ function renderTeamsList(container) {
   addBtn.type = 'button';
   addBtn.className = 'btn btn-secondary btn-sm';
   addBtn.id = 'btn-add-team';
-  addBtn.innerHTML = '➕ Přidat tým';
+  addBtn.textContent = '+ Přidat tým';
   if (project.teams.length >= 8) {
     addBtn.disabled = true;
     addBtn.style.opacity = '0.4';
@@ -813,11 +809,11 @@ function updatePrintButtonLabel() {
   const count = project.teams ? project.teams.length : 4;
 
   if (selectedPreviewTeam === 'all') {
-    btnPrint.textContent = `🖨️ Vytisknout všechny archy (${count} ${count >= 5 ? 'stran' : (count >= 2 ? 'strany' : 'strana')})`;
+    btnPrint.textContent = `Vytisknout všechny archy (${count} ${count >= 5 ? 'stran' : (count >= 2 ? 'strany' : 'strana')})`;
   } else {
     const idx = Number(selectedPreviewTeam);
     const team = project.teams && project.teams[idx] ? project.teams[idx].name : `Tým ${idx + 1}`;
-    btnPrint.textContent = `🖨️ Vytisknout jen arch: ${team} (1 strana)`;
+    btnPrint.textContent = `Vytisknout jen arch: ${team} (1 strana)`;
   }
 }
 
@@ -827,7 +823,7 @@ function initStep3Print() {
     btnPrint.addEventListener('click', async () => {
       const origText = btnPrint.textContent;
       btnPrint.disabled = true;
-      btnPrint.textContent = '⏳ Příprava tisku…';
+      btnPrint.textContent = 'Příprava tisku…';
 
       updateDynamicPrintStyle();
 
@@ -992,7 +988,7 @@ function updatePrintPreview() {
 
   if (!project.map || !project.map.georef) {
     alertEl.style.display = 'block';
-    alertEl.innerHTML = '⚠️ <strong>Upozornění:</strong> Mapa zatím není nastavena nebo georeferencována. Vytisknuté archy budou mít prázdné mapové pole.';
+    alertEl.innerHTML = '<strong>Upozornění:</strong> Mapa zatím není nastavena nebo georeferencována. Vytisknuté archy budou mít prázdné mapové pole.';
   } else {
     alertEl.style.display = 'none';
   }
@@ -1024,27 +1020,150 @@ function updatePrintPreview() {
 // -------------------------------------------------------------
 // 4. ZÁLOŽKA: HRA & GPX
 // -------------------------------------------------------------
+let step4Initialized = false;
+
 function initStep4Game() {
-  const startInput = document.getElementById('game-start-time');
-  const endInput = document.getElementById('game-end-time');
   const gpxContainer = document.getElementById('gpx-teams-container');
 
-  if (project.game) {
-    startInput.value = msToDatetimeLocal(project.game.startMs);
-    endInput.value = msToDatetimeLocal(project.game.endMs);
+  if (!step4Initialized) {
+    step4Initialized = true;
+
+    const btnAddCp = document.getElementById('btn-add-checkpoint');
+    const cpNameInput = document.getElementById('checkpoint-name');
+    const cpCoordsInput = document.getElementById('checkpoint-coords');
+    const cpRadiusInput = document.getElementById('checkpoint-radius');
+    const cpErrorEl = document.getElementById('checkpoint-error');
+
+    if (btnAddCp) {
+      btnAddCp.addEventListener('click', () => {
+        if (cpErrorEl) cpErrorEl.style.display = 'none';
+        const coordsStr = (cpCoordsInput?.value || '').trim();
+        const parsed = parseLatLon(coordsStr);
+        if (!parsed) {
+          if (cpErrorEl) {
+            cpErrorEl.textContent = 'Neplatné souřadnice. Zadejte např. 49.8175N, 18.2611E nebo 49°49.05\'N 18°15.66\'E.';
+            cpErrorEl.style.display = 'inline';
+          }
+          return;
+        }
+        const radiusRaw = Number(cpRadiusInput?.value);
+        const radiusM = Number.isFinite(radiusRaw) && radiusRaw > 0 ? radiusRaw : 50;
+        if (!Array.isArray(project.checkpoints)) project.checkpoints = [];
+        const name = (cpNameInput?.value || '').trim() || `Kontrola ${project.checkpoints.length + 1}`;
+        project.checkpoints.push({
+          id: `cp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name,
+          lat: parsed.lat,
+          lon: parsed.lon,
+          radiusM,
+        });
+        saveProject(project);
+        if (cpNameInput) cpNameInput.value = '';
+        if (cpCoordsInput) cpCoordsInput.value = '';
+        renderCheckpointsSection();
+      });
+    }
   }
 
-  startInput.addEventListener('change', () => {
-    project.game.startMs = datetimeLocalToMs(startInput.value);
-    saveProject(project);
-  });
-
-  endInput.addEventListener('change', () => {
-    project.game.endMs = datetimeLocalToMs(endInput.value);
-    saveProject(project);
-  });
-
   renderGpxTeamsList(gpxContainer);
+  renderCheckpointsSection();
+}
+
+function formatCheckpointTime(ms) {
+  if (ms == null || !Number.isFinite(ms)) return '';
+  try {
+    return new Date(ms).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+function renderCheckpointsSection() {
+  const container = document.getElementById('checkpoints-list-container');
+  if (!container) return;
+
+  const checkpoints = Array.isArray(project.checkpoints) ? project.checkpoints : [];
+  if (checkpoints.length === 0) {
+    container.innerHTML = `<div style="font-size:13px; color:var(--text-muted);">Zatím nejsou zadány žádné body povinného průchodu.</div>`;
+    return;
+  }
+
+  const startMs = project.game?.startMs ?? null;
+  const endMs = project.game?.endMs ?? null;
+
+  // Vyhodnotíme průchod každého týmu z nahraných GPX
+  const perTeamChecks = project.teams.map((_, idx) => {
+    const gpxInfo = project.gpx && project.gpx[idx];
+    if (!gpxInfo || !gpxInfo.text) return null;
+    try {
+      const parsed = parseGpx(gpxInfo.text);
+      const pts = filterByTime(parsed.points, startMs, endMs);
+      return checkCheckpoints(pts, checkpoints);
+    } catch {
+      return null;
+    }
+  });
+
+  const rowsHtml = checkpoints.map((cp, cpIdx) => {
+    const teamCells = project.teams.map((_, tIdx) => {
+      const resList = perTeamChecks[tIdx];
+      if (!resList) {
+        return `<td style="color:var(--text-muted);">— (chybí GPX)</td>`;
+      }
+      const res = resList[cpIdx];
+      if (!res || res.minDistM == null) {
+        return `<td style="color:var(--text-muted);">— (prázdné GPX)</td>`;
+      }
+      const distStr = `${Math.round(res.minDistM)} m`;
+      const timeStr = res.reachedAt != null ? `, ${formatCheckpointTime(res.reachedAt)}` : '';
+      if (res.passed) {
+        return `<td><span style="color:var(--success); font-weight:600;">✓ Prošli (${distStr}${timeStr})</span></td>`;
+      }
+      return `<td><span style="color:var(--danger); font-weight:600;">✕ Neprošli (nejblíže ${distStr})</span></td>`;
+    }).join('');
+
+    return `
+      <tr>
+        <td style="font-weight:600;">${escapeHtml(cp.name)}</td>
+        <td style="font-size:12px; color:var(--text-muted);">${cp.lat.toFixed(5)}°, ${cp.lon.toFixed(5)}°</td>
+        <td class="num-cell">${cp.radiusM || 50} m</td>
+        ${teamCells}
+        <td style="text-align:right;">
+          <button type="button" class="btn btn-danger btn-sm btn-del-checkpoint" data-cp-idx="${cpIdx}" style="padding:2px 8px; min-height:24px;" title="Smazat bod">×</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="eval-table-wrap" style="margin-top:0; margin-bottom:0;">
+      <table class="eval-table" style="font-size:12px;">
+        <thead>
+          <tr>
+            <th>Kontrolní bod</th>
+            <th>Souřadnice</th>
+            <th class="th-num">Poloměr</th>
+            ${project.teams.map(t => `<th><span class="team-dot" style="background-color:${t.color};"></span> ${escapeHtml(t.name)}</th>`).join('')}
+            <th style="width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  container.querySelectorAll('.btn-del-checkpoint').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-cp-idx'));
+      if (idx >= 0 && Array.isArray(project.checkpoints)) {
+        project.checkpoints.splice(idx, 1);
+        saveProject(project);
+        renderCheckpointsSection();
+      }
+    });
+  });
 }
 
 function renderGpxTeamsList(container) {
@@ -1073,23 +1192,56 @@ function renderGpxTeamsList(container) {
     statusWrap.style.gap = '10px';
     statusWrap.style.flex = '1';
 
+    let gpxWarningHtml = '';
     if (gpxInfo && gpxInfo.text) {
-      const trkptCount = (gpxInfo.text.match(/<trkpt/gi) || gpxInfo.text.match(/<rtept/gi) || []).length;
+      let ptCount = 0;
+      let lenKmStr = '0.00';
+      let hasTime = false;
+      let gaps = [];
+      let parseFailed = false;
+      try {
+        const parsed = parseGpx(gpxInfo.text);
+        ptCount = parsed.points.length;
+        hasTime = parsed.points.some(p => p.time != null);
+        const cleanedPts = hasTime ? filterJitter(parsed.points) : parsed.points;
+        lenKmStr = (trackLength(cleanedPts) / 1000).toFixed(2);
+        gaps = hasTime ? findGaps(parsed.points) : [];
+      } catch {
+        parseFailed = true;
+      }
+
+      const manualBadge = (!parseFailed && ptCount > 0 && !hasTime)
+        ? `<span style="font-size:11px; background:#e0f2fe; color:#0369a1; padding:2px 7px; border-radius:4px; font-weight:600;">Ručně upravená trasa (bez časů) – vyhodnocuje se souvisle</span>`
+        : '';
+
+      statusWrap.style.flexWrap = 'wrap';
       statusWrap.innerHTML = `
-        <span style="font-size:13px; color:var(--success); font-weight:600;">✓ ${gpxInfo.fileName || 'GPX soubor'}</span>
-        <span style="font-size:12px; color:var(--text-muted);">(${trkptCount} bodů, ${Math.round(gpxInfo.text.length / 1024)} KB)</span>
+        <span style="font-size:13px; color:var(--success); font-weight:600;">✓ ${escapeHtml(gpxInfo.fileName || 'GPX soubor')}</span>
+        <span style="font-size:12px; color:var(--text-muted);">(${ptCount} bodů, ${lenKmStr} km, ${Math.round(gpxInfo.text.length / 1024)} KB)</span>
+        ${manualBadge}
         <button type="button" class="btn btn-danger btn-sm" style="margin-left:auto;">Odstranit</button>
       `;
+
+      if (parseFailed || ptCount === 0) {
+        gpxWarningHtml = `<div class="alert alert-warning" style="flex-basis:100%; margin:6px 0 0 0; padding:8px 12px; font-size:12px;">Soubor neobsahuje žádné platné body trasy.</div>`;
+      } else if (gaps.length > 0) {
+        const totalGapS = gaps.reduce((s, x) => s + (x.gapS != null ? x.gapS : Math.round((x.jumpM || 0) / 1.5)), 0);
+        const gapMin = Math.max(1, Math.round(totalGapS / 60));
+        const maxJumpM = Math.round(Math.max(...gaps.map(g => g.jumpM || 0)));
+        gpxWarningHtml = `<div class="alert alert-warning" style="flex-basis:100%; margin:6px 0 0 0; padding:8px 12px; font-size:12px;">Výpadek signálu GPS (${gaps.length}×, celkem cca ${gapMin} min, max. skok ${maxJumpM} m) – pokud chcete, upravte/dokreslete trasu v mapě a nahrajte opravený GPX soubor.</div>`;
+      }
+
       statusWrap.querySelector('button').addEventListener('click', () => {
         delete project.gpx[idx];
         saveProject(project);
         renderGpxTeamsList(container);
+        renderCheckpointsSection();
       });
     } else {
       const fileLabel = document.createElement('label');
       fileLabel.className = 'btn btn-secondary btn-sm';
       fileLabel.style.cursor = 'pointer';
-      fileLabel.textContent = '📁 Nahrát GPX';
+      fileLabel.textContent = 'Nahrát GPX';
 
       const fileInput = document.createElement('input');
       fileInput.type = 'file';
@@ -1109,6 +1261,7 @@ function renderGpxTeamsList(container) {
           };
           saveProject(project);
           renderGpxTeamsList(container);
+          renderCheckpointsSection();
         };
         reader.readAsText(file);
       });
@@ -1120,6 +1273,9 @@ function renderGpxTeamsList(container) {
     row.appendChild(badge);
     row.appendChild(nameSpan);
     row.appendChild(statusWrap);
+    if (gpxWarningHtml) {
+      row.insertAdjacentHTML('beforeend', gpxWarningHtml);
+    }
     container.appendChild(row);
   });
 }

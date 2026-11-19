@@ -9,6 +9,8 @@ import {
   filterByTime,
   findGaps,
   resample,
+  filterJitter,
+  checkCheckpoints,
   EARTH_R,
 } from '../js/core/gpx.js';
 
@@ -405,5 +407,81 @@ describe('Převzorkování trasy – resample', () => {
     // Koncové body po zotavení signálu
     assert.equal(sampled[sampled.length - 2].gap, false);
     assert.equal(sampled[sampled.length - 1].gap, false);
+  });
+});
+
+describe('Potlačení plavání GPS na místě – filterJitter', () => {
+  const t0 = 1700000000000;
+  const latM = 1 / EARTH_R / (Math.PI / 180);
+
+  test('stání na místě 30 min s šumem ±10 m nevytvoří falešnou vzdálenost ani výpadek', () => {
+    const pts = [];
+    // 60 bodů po 30 s (celkem 30 min), plavání GPS do ±10 m (< 15 m)
+    for (let i = 0; i < 60; i++) {
+      const offsetM = (i % 2 === 0 ? 1 : -1) * (4 + (i % 5));
+      pts.push({
+        lat: 50.0 + offsetM * latM,
+        lon: 14.0,
+        time: t0 + i * 30000,
+      });
+    }
+
+    assert.ok(trackLength(pts) > 500, 'Surový šum bez filtrace má stovky metrů');
+
+    const cleaned = filterJitter(pts, { radiusM: 15 });
+    assert.equal(cleaned.length, pts.length);
+    assert.equal(trackLength(cleaned), 0, 'Po filtraci má stání na místě délku 0 m');
+    assert.deepEqual(findGaps(cleaned), [], 'Stání na místě nevytvořilo falešný časový výpadek');
+  });
+
+  test('chůze tam a zpět (200 m tam a 200 m zpět) zůstane plně zachována', () => {
+    const pts = [];
+    // 200 m tam po 20 m, pak 200 m zpět po 20 m
+    for (let i = 0; i <= 10; i++) {
+      pts.push({ lat: 50.0 + i * 20 * latM, lon: 14.0, time: t0 + i * 20000 });
+    }
+    for (let i = 9; i >= 0; i--) {
+      pts.push({ lat: 50.0 + i * 20 * latM, lon: 14.0, time: t0 + (20 - i) * 20000 });
+    }
+
+    const cleaned = filterJitter(pts, { radiusM: 15 });
+    const len = trackLength(cleaned);
+    assert.ok(Math.abs(len - 400) < 2, `Délka tam a zpět má být ~400 m, byla ${len}`);
+  });
+});
+
+describe('Body povinného průchodu – checkCheckpoints', () => {
+  const t0 = 1700000000000;
+  const latM = 1 / EARTH_R / (Math.PI / 180);
+
+  test('detekuje průchod vrcholem, průchod úsečkou mezi body i minutí bodu', () => {
+    // Trasa vede rovně na sever od 0 m do 200 m, body jen v 0 m, 40 m, 180 m, 200 m
+    // (úsečka mezi 40 m a 180 m má 140 m <= 200 m a prochází bodem 110 m!)
+    const pts = [
+      { lat: 50.0 + 0 * latM, lon: 14.0, time: t0 },
+      { lat: 50.0 + 40 * latM, lon: 14.0, time: t0 + 40000 },
+      { lat: 50.0 + 180 * latM, lon: 14.0, time: t0 + 180000 },
+      { lat: 50.0 + 200 * latM, lon: 14.0, time: t0 + 200000 },
+    ];
+
+    const checkpoints = [
+      { id: 'cp1', name: 'Vrchol 40m', lat: 50.0 + 40 * latM, lon: 14.0, radiusM: 25 },
+      { id: 'cp2', name: 'Úsečka 110m', lat: 50.0 + 110 * latM, lon: 14.0, radiusM: 25 },
+      { id: 'cp3', name: 'Mimo 300m', lat: 50.0 + 300 * latM, lon: 14.0, radiusM: 50 },
+    ];
+
+    const res = checkCheckpoints(pts, checkpoints);
+    assert.equal(res.length, 3);
+
+    assert.equal(res[0].passed, true);
+    assert.ok(res[0].minDistM < 0.5);
+    assert.equal(res[0].reachedAt, t0 + 40000);
+
+    assert.equal(res[1].passed, true, 'Úsečka mezi body zachytila průchod bodem 110 m');
+    assert.ok(res[1].minDistM < 0.5);
+    assert.ok(Math.abs(res[1].reachedAt - (t0 + 110000)) < 100);
+
+    assert.equal(res[2].passed, false);
+    assert.ok(Math.abs(res[2].minDistM - 100) < 1);
   });
 });

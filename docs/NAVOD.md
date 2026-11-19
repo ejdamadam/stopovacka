@@ -59,19 +59,19 @@ V záložce **„3. Tisk“**:
 
 ## 4. Průběh hry
 
-1. Každému týmu předejte jeho vytištěný arch a sadu **barevných fix** (doporučeno: syté, výrazné barvy jako červená, modrá, zelená, fialová; vyvarujte se černé a šedé).
+1. Každému týmu předejte jeho vytištěný arch a sadu **barevných fix** o tloušťce hrotu ~1 mm (doporučeno: syté, výrazné barvy jako červená, modrá, zelená, oranžová/fialová; vyvarujte se černé, šedé a tlustých zvýrazňovačů).
 2. **DŮLEŽITÉ PŘED STARTEM**: Každý tým musí hned na začátku udělat **tlustou čáru fixou do kalibračního pole** pro každý cizí tým, aby bylo jasné, kterou barvou bude koho zakreslovat.
 3. Každý tým spustí na svém telefonu záznam trasy (např. Stopař v aplikaci Mapy.cz nebo outdoorové hodinky).
-4. V záložce **„4. Hra & GPX“** v aplikaci organizátora nastavte oficiální čas začátku a konce hry.
-5. Během hry týmy pátrají po pohybu soupeřů a jejich spatřené nebo vydedukované trasy zakreslují do své mapy příslušnou barvou fixy.
+4. V záložce **„4. GPX trasy“** můžete volitelně přidat **body povinného průchodu** pro informační kontrolu průchodu z GPX (nezapočítávají se do skóre).
+5. Během hry týmy pátrají po pohybu soupeřů a jejich spatřené nebo vydedukované trasy zakreslují do své mapy příslušnou barvou fixy. Pokud jdou dva týmy po stejné cestě, je potřeba kreslit jejich čáry **těsně vedle sebe** (nikoliv přes sebe) tenkou (~1 mm) linkou.
 
 ---
 
 ## 5. Ukončení a vyhodnocení hry
 
 1. V cíli odevzdá každý tým svůj arch organizátorovi a exportuje GPX soubor své stopy.
-2. V záložce **„4. Hra & GPX“**:
-   - Nahrajte GPX soubory jednotlivých týmů. Aplikace automaticky zkontroluje délku tras a výpadky signálu.
+2. V záložce **„4. GPX trasy“**:
+   - Nahrajte GPX soubory jednotlivých týmů. Aplikace automaticky zkontroluje délku tras, upozorní na případné výpadky signálu GPS (v takovém případě můžete trasu ručně dokreslit v mapě a nahrát opravený GPX soubor, který se vyhodnotí souvisle) a zkontroluje průchod zadanými kontrolními body.
 3. V záložce **„5. Vyhodnocení“**:
    - Telefonem vyfoťte odevzdané archy.
    - Fotku můžete nahrát přímo z fotoaparátu do karty týmu nebo hromadně.

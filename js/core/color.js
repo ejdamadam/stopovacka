@@ -141,9 +141,125 @@ export function estimateWhite(img, rect = null) {
 }
 
 /**
- * Vyvážení bílé: nový obrázek se škálovanými kanály tak, aby white → (245, 245, 245).
+ * Lokální (mřížkové) vyvážení bílé: rozdělí obrázek na dlaždice, odhadne lokální bílou
+ * (eliminuje stín ruky/telefonu nebo nerovnoměrné světlo v lese) a bilineárně ji interpoluje.
  */
-export function whiteBalance(img, white) {
+export function whiteBalanceLocal(img, globalWhite = null, { gridX = 4, gridY = 6 } = {}) {
+  const { width: W, height: H, data: src } = img;
+  const baseWhite = globalWhite || estimateWhite(img);
+  const gxN = Math.max(1, Math.min(gridX, Math.floor(W / 20)));
+  const gyN = Math.max(1, Math.min(gridY, Math.floor(H / 20)));
+
+  if (gxN <= 1 && gyN <= 1) {
+    return whiteBalance(img, baseWhite);
+  }
+
+  const baseR = baseWhite.r > 0 ? baseWhite.r : 245;
+  const baseG = baseWhite.g > 0 ? baseWhite.g : 245;
+  const baseB = baseWhite.b > 0 ? baseWhite.b : 245;
+
+  const clampChannel = (val, base) => {
+    const minV = Math.max(40, base * 0.55);
+    const maxV = Math.min(255, Math.max(minV, base * 1.25));
+    return Math.max(minV, Math.min(maxV, val));
+  };
+
+  const rawR = new Float64Array(gxN * gyN);
+  const rawG = new Float64Array(gxN * gyN);
+  const rawB = new Float64Array(gxN * gyN);
+
+  for (let gy = 0; gy < gyN; gy++) {
+    const y0 = Math.floor((gy * H) / gyN);
+    const y1 = Math.floor(((gy + 1) * H) / gyN);
+    for (let gx = 0; gx < gxN; gx++) {
+      const x0 = Math.floor((gx * W) / gxN);
+      const x1 = Math.floor(((gx + 1) * W) / gxN);
+      const wt = estimateWhite(img, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+      const idx = gy * gxN + gx;
+      rawR[idx] = clampChannel(wt.r, baseR);
+      rawG[idx] = clampChannel(wt.g, baseG);
+      rawB[idx] = clampChannel(wt.b, baseB);
+    }
+  }
+
+  // Vyhlazení mřížky 3×3 průměrem sousedních buněk
+  const smR = new Float64Array(gxN * gyN);
+  const smG = new Float64Array(gxN * gyN);
+  const smB = new Float64Array(gxN * gyN);
+
+  for (let gy = 0; gy < gyN; gy++) {
+    for (let gx = 0; gx < gxN; gx++) {
+      let sR = 0, sG = 0, sB = 0, cnt = 0;
+      for (let ny = Math.max(0, gy - 1); ny <= Math.min(gyN - 1, gy + 1); ny++) {
+        for (let nx = Math.max(0, gx - 1); nx <= Math.min(gxN - 1, gx + 1); nx++) {
+          const idx = ny * gxN + nx;
+          sR += rawR[idx];
+          sG += rawG[idx];
+          sB += rawB[idx];
+          cnt++;
+        }
+      }
+      const idx = gy * gxN + gx;
+      smR[idx] = sR / cnt;
+      smG[idx] = sG / cnt;
+      smB[idx] = sB / cnt;
+    }
+  }
+
+  // Předvýpočet souřadnic pro rychlou bilineární interpolaci
+  const x0Arr = new Int32Array(W);
+  const x1Arr = new Int32Array(W);
+  const txArr = new Float64Array(W);
+  for (let x = 0; x < W; x++) {
+    const fx = Math.max(0, Math.min(gxN - 1, ((x + 0.5) * gxN) / W - 0.5));
+    const x0 = Math.floor(fx);
+    const x1 = Math.min(gxN - 1, x0 + 1);
+    x0Arr[x] = x0;
+    x1Arr[x] = x1;
+    txArr[x] = fx - x0;
+  }
+
+  const out = new Uint8ClampedArray(src.length);
+  for (let y = 0; y < H; y++) {
+    const fy = Math.max(0, Math.min(gyN - 1, ((y + 0.5) * gyN) / H - 0.5));
+    const y0 = Math.floor(fy);
+    const y1 = Math.min(gyN - 1, y0 + 1);
+    const ty = fy - y0;
+    const ity = 1 - ty;
+    const rOff0 = y0 * gxN;
+    const rOff1 = y1 * gxN;
+    const rowPxOff = y * W;
+
+    for (let x = 0; x < W; x++) {
+      const x0 = x0Arr[x], x1 = x1Arr[x], tx = txArr[x], itx = 1 - tx;
+      const i00 = rOff0 + x0, i10 = rOff0 + x1;
+      const i01 = rOff1 + x0, i11 = rOff1 + x1;
+      const w00 = itx * ity, w10 = tx * ity, w01 = itx * ty, w11 = tx * ty;
+
+      const wr = w00 * smR[i00] + w10 * smR[i10] + w01 * smR[i01] + w11 * smR[i11];
+      const wg = w00 * smG[i00] + w10 * smG[i10] + w01 * smG[i01] + w11 * smG[i11];
+      const wb = w00 * smB[i00] + w10 * smB[i10] + w01 * smB[i01] + w11 * smB[i11];
+
+      const pIdx = (rowPxOff + x) * 4;
+      out[pIdx] = src[pIdx] * (245 / wr);
+      out[pIdx + 1] = src[pIdx + 1] * (245 / wg);
+      out[pIdx + 2] = src[pIdx + 2] * (245 / wb);
+      out[pIdx + 3] = src[pIdx + 3];
+    }
+  }
+
+  return { width: W, height: H, data: out };
+}
+
+/**
+ * Vyvážení bílé: nový obrázek se škálovanými kanály tak, aby white → (245, 245, 245).
+ * Při opts.local === true na dostatečně velkém obrázku použije lokální mřížkové vyvážení.
+ */
+export function whiteBalance(img, white, opts = {}) {
+  if (opts && opts.local === true && img.width >= 120 && img.height >= 120) {
+    return whiteBalanceLocal(img, white, opts);
+  }
+
   const { width: W, height: H, data: src } = img;
   const out = new Uint8ClampedArray(src.length);
   const kr = (white && white.r > 0) ? 245 / white.r : 1;
@@ -161,8 +277,8 @@ export function whiteBalance(img, white) {
 
 /**
  * Vzorkování barvy fixy z kalibračního pole.
- * Medián Lab pixelů v rect, které jsou „inkoust“: chroma ≥ 12 NEBO L < 70.
- * null když je takových pixelů < 20.
+ * Preferuje syté pixely inkoustu (chroma ≥ 12), jinak vezme i tmavé méně syté (chroma ≥ 5, L < 65).
+ * Vrací {lab, rgb, chroma, n} nebo null když je vhodných pixelů < 20.
  */
 export function sampleInk(img, rect) {
   const { width: W, height: H, data } = img;
@@ -173,12 +289,8 @@ export function sampleInk(img, rect) {
 
   if (rw <= 0 || rh <= 0) return null;
 
-  const Ls = [];
-  const As = [];
-  const Bs = [];
-  const Rs = [];
-  const Gs = [];
-  const BsRgb = [];
+  const satLs = [], satAs = [], satBs = [], satRs = [], satGs = [], satBsRgb = [];
+  const darkLs = [], darkAs = [], darkBs = [], darkRs = [], darkGs = [], darkBsRgb = [];
 
   for (let y = ry; y < ry + rh; y++) {
     const rowOff = y * W;
@@ -187,15 +299,31 @@ export function sampleInk(img, rect) {
       const r = data[idx], g = data[idx + 1], b = data[idx + 2];
       const [L, a, bVal] = srgbToLab(r, g, b);
       const chroma = Math.hypot(a, bVal);
-      if (chroma >= 12 || L < 70) {
-        Ls.push(L); As.push(a); Bs.push(bVal);
-        Rs.push(r); Gs.push(g); BsRgb.push(b);
+      if (chroma >= 12) {
+        satLs.push(L); satAs.push(a); satBs.push(bVal);
+        satRs.push(r); satGs.push(g); satBsRgb.push(b);
+      } else if (chroma >= 5 && L < 65) {
+        darkLs.push(L); darkAs.push(a); darkBs.push(bVal);
+        darkRs.push(r); darkGs.push(g); darkBsRgb.push(b);
       }
     }
   }
 
+  let Ls, As, Bs, Rs, Gs, BsRgb;
+  if (satLs.length >= 20) {
+    Ls = satLs; As = satAs; Bs = satBs; Rs = satRs; Gs = satGs; BsRgb = satBsRgb;
+  } else if (satLs.length + darkLs.length >= 20) {
+    Ls = satLs.concat(darkLs);
+    As = satAs.concat(darkAs);
+    Bs = satBs.concat(darkBs);
+    Rs = satRs.concat(darkRs);
+    Gs = satGs.concat(darkGs);
+    BsRgb = satBsRgb.concat(darkBsRgb);
+  } else {
+    return null;
+  }
+
   const n = Ls.length;
-  if (n < 20) return null;
 
   function median(arr) {
     arr.sort((x, y) => x - y);
@@ -203,9 +331,11 @@ export function sampleInk(img, rect) {
     return arr.length % 2 === 1 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
   }
 
+  const lab = [median(Ls), median(As), median(Bs)];
   return {
-    lab: [median(Ls), median(As), median(Bs)],
+    lab,
     rgb: [median(Rs), median(Gs), median(BsRgb)],
+    chroma: Math.hypot(lab[1], lab[2]),
     n,
   };
 }
@@ -225,17 +355,26 @@ export function classifyInks(img, rect, inks, opts = {}) {
   const maxDist = opts.maxDist ?? 40;
   const minChroma2 = minChroma * minChroma;
   const maxDist2 = maxDist * maxDist;
+  const lowChromaMaxDist2 = (maxDist * 0.65) * (maxDist * 0.65);
 
   const numInks = inks.length;
   const inkL = new Float64Array(numInks);
   const inkA = new Float64Array(numInks);
   const inkB = new Float64Array(numInks);
+  let minCalibChroma = Infinity;
   for (let k = 0; k < numInks; k++) {
     const lab = inks[k].lab || inks[k];
     inkL[k] = lab[0];
     inkA[k] = lab[1];
     inkB[k] = lab[2];
+    const c = Math.hypot(lab[1], lab[2]);
+    if (c < minCalibChroma) minCalibChroma = c;
   }
+
+  // Sjednocení s kalibrací: pokud je některá kalibrovaná fixa tmavá/méně sytá, snížíme práh,
+  // ale pod minChroma vyžadujeme těsnější shodu odstínu, abychom nezachytili šedotónový tisk.
+  const effMinChroma = Math.min(minChroma, Math.max(6, minCalibChroma * 0.7));
+  const effMinChroma2 = effMinChroma * effMinChroma;
 
   const rx = rect ? Math.max(0, Math.floor(rect.x)) : 0;
   const ry = rect ? Math.max(0, Math.floor(rect.y)) : 0;
@@ -268,7 +407,7 @@ export function classifyInks(img, rect, inks, opts = {}) {
       const bVal = 200 * (fy - fz);
 
       const chroma2 = a * a + bVal * bVal;
-      if (chroma2 < minChroma2) continue;
+      if (chroma2 < effMinChroma2) continue;
 
       let bestDist2 = Infinity;
       let bestK = -1;
@@ -284,7 +423,8 @@ export function classifyInks(img, rect, inks, opts = {}) {
         }
       }
 
-      if (bestDist2 <= maxDist2) {
+      const limit2 = chroma2 < minChroma2 ? lowChromaMaxDist2 : maxDist2;
+      if (bestDist2 <= limit2) {
         out[pIdx] = bestK + 1;
       }
     }

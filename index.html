@@ -73,7 +73,7 @@
         <div class="form-grid">
           <div class="form-group">
             <label class="form-label" for="project-name">Název hry</label>
-            <input type="text" id="project-name" class="form-control" placeholder="např. Jarní stopovačka 2026" />
+            <input type="text" id="project-name" class="form-control" placeholder="např. Zrádci 2026" />
           </div>
 
           <div class="form-group">
@@ -95,17 +95,9 @@
           <div class="form-group">
             <label class="form-label" for="map-print-mode">Barevnost mapy na archu</label>
             <select id="map-print-mode" class="form-control">
-              <option value="grayscale">Šedotónová (doporučeno pro rozlišení fix)</option>
+              <option value="grayscale">Šedotónová</option>
               <option value="colorFaded">Tlumená barevná</option>
               <option value="color">Plnobarevná</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="marker-grid">Korekční značky</label>
-            <select id="marker-grid" class="form-control">
-              <option value="8">8 značek (rohy + středy stran, odolnost proti zvlnění)</option>
-              <option value="4">4 značky (jen v rozích)</option>
             </select>
           </div>
         </div>
@@ -227,23 +219,34 @@
     <!-- 4. ZÁLOŽKA: HRA & GPX -->
     <section id="tab-game" class="tab-pane">
       <div class="card">
-        <h2 class="card-title">Časový interval hry</h2>
-        <div class="form-grid" style="margin-bottom:6px;">
-          <div class="form-group">
-            <label class="form-label" for="game-start-time">Začátek hry</label>
-            <input type="datetime-local" id="game-start-time" class="form-control" />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="game-end-time">Konec hry</label>
-            <input type="datetime-local" id="game-end-time" class="form-control" />
-          </div>
-        </div>
-        <span style="font-size:12px; color:var(--text-muted);">Body v GPX mimo tento časový interval budou automaticky ignorovány.</span>
+        <h2 class="card-title" style="margin-bottom:14px;">Záznamy tras (GPX)</h2>
+        <div id="gpx-teams-container" class="teams-list"></div>
       </div>
 
       <div class="card">
-        <h2 class="card-title" style="margin-bottom:14px;">Záznamy tras (GPX)</h2>
-        <div id="gpx-teams-container" class="teams-list"></div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+          <h2 class="card-title" style="margin:0;">Body povinného průchodu (kontroly)</h2>
+          <span style="font-size:12px; color:var(--text-muted);">Kontrola průchodu slouží pouze pro přehled organizátora a nezapočítává se do skóre.</span>
+        </div>
+        <div class="form-grid" style="margin-bottom:10px;">
+          <div class="form-group">
+            <label class="form-label" for="checkpoint-name">Název bodu</label>
+            <input type="text" id="checkpoint-name" class="form-control" placeholder="např. Kontrola 1 – Rozcestí" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="checkpoint-coords">Souřadnice GPS (WGS-84)</label>
+            <input type="text" id="checkpoint-coords" class="form-control" placeholder="např. 49.8175N, 18.2611E" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="checkpoint-radius">Poloměr uznání [m]</label>
+            <input type="number" id="checkpoint-radius" class="form-control" value="50" min="5" max="500" step="5" />
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+          <button type="button" id="btn-add-checkpoint" class="btn btn-secondary btn-sm">+ Přidat bod</button>
+          <span id="checkpoint-error" style="color:var(--danger); font-size:12px; display:none;"></span>
+        </div>
+        <div id="checkpoints-list-container"></div>
       </div>
     </section>
 

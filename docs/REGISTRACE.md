@@ -46,30 +46,30 @@ TPS pole se předpočítá v mřížce po 10 mm a při vzorkování se bilineár
 
 ## 3. Vyvážení bílé a kalibrace fix
 
-### Vyvážení bílé
-Osvětlení při focení telefonem bývá nerovnoměrné nebo barevně posunuté (žluté žárovkové světlo apod.):
-1. V ploše mapového pole se určí medián barvy nejjasnějších ~10 % pixelů (`estimateWhite`), což odpovídá podkladovému bílému papíru.
-2. Kanály R, G, B celého narovnaného archu se lineárně přeškálují tak, aby barva papíru odpovídala neutrální světle šedé $(245, 245, 245)$.
+### Vyvážení bílé (lokální mřížkové)
+Osvětlení při focení telefonem v terénu bývá nerovnoměrné (stín ruky/telefonu přes kalibrační pole, žluté světlo apod.):
+1. V ploše mapového pole se určí referenční globální bílá papíru (`estimateWhite` = medián ~10 % nejjasnějších pixelů).
+2. `whiteBalanceLocal` rozdělí arch na mřížku $4 \times 6$ dlaždic, v každé určí lokální bílou papíru (omezenou vůči globální bílé proti přepálení), mřížku $3 \times 3$ vyhladí a bilineárně interpoluje pro každý pixel archu tak, aby lokální papír odpovídal neutrální $(245, 245, 245)$.
 
 ### Kalibrace fix z kalibračních polí
 V dolním pásu archu má tým předkreslené rámečky pro každý cizí tým:
 1. `calibSampleRect` vymezí střední oblast rámečku pod textem (spodních 68 % výšky).
-2. `sampleInk` vybere pixely, které nesou inkoust (sytost $\text{Chroma} \ge 12$ nebo světlost $L < 70$).
-3. Určí se reprezentativní barva fixy v barevném prostoru CIE Lab (D65) jako medián vzorků.
+2. `sampleInk` preferuje syté pixely inkoustu ($\text{Chroma} \ge 12$). Pokud je jich méně než 20 (tmavá nebo méně sytá fixa), zahrne i tmavší pixely ($\text{Chroma} \ge 5$ a $L < 65$).
+3. Určí se reprezentativní barva fixy v CIE Lab (D65) jako medián vzorků včetně její sytosti `chroma`. Pokud je naměřená `chroma < minChroma`, aplikace vypíše varování.
 
 ---
 
 ## 4. Klasifikace barevných čar v mapě
 
 Mapa je tištěná výhradně **šedotónově**, což znamená, že veškerá kresba mapy má nízkou sytost ($\text{Chroma} \approx 0$).
-Barevné čáry fixy mají naopak vysokou sytost.
+Barevné čáry fixy mají naopak vyšší sytost.
 
 1. Pro každý pixel mapového pole se převede barva sRGB $\to$ CIE Lab (optimalizováno s precomputed lookup table pro linearizaci).
-2. Pixel je kandidátem na fixu, pokud $\text{Chroma} \ge \text{minChroma}$ (výchozí 14).
+2. Efektivní práh sytosti se automaticky přizpůsobí nejsvětlejší/nejméně syté kalibrované fixe: $\text{effMinChroma} = \min(\text{minChroma}, \max(6, 0{,}7 \cdot \min_k \text{Chroma}_k))$.
 3. Spočítá se vážená barevná vzdálenost ke každé kalibrované fixe:
    $$d = \sqrt{(0.5 \cdot \Delta L)^2 + \Delta a^2 + \Delta b^2}$$
    *(Váha světlosti $L$ je snížena na polovinu, protože sytost a odstín fixy jsou stabilnější než kolísání přítlaku a stínování).*
-4. Pokud $\min(d) \le \text{maxDist}$ (výchozí 40), pixel je přiřazen příslušné fixe.
+4. Pokud $\min(d) \le \text{maxDist}$ (výchozí 40; pro méně syté pixely pod `minChroma` přísněji $0{,}65 \cdot \text{maxDist}$), pixel je přiřazen příslušné fixe.
 
 ---
 

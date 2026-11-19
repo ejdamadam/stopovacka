@@ -189,7 +189,7 @@ export function renderSheetHtml(project, teamIdx) {
       </div>
       <div class="sheet-header sheet-header-right" style="position:absolute; left:${header.right.x}mm; top:${header.right.y}mm; width:${header.right.w}mm; height:${header.right.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:flex-end; text-align:right; box-sizing:border-box; padding:0 1.5mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
         <div style="font-size:2.3mm; color:#444; line-height:1.2;">
-          Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou).
+          Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou). Při souběhu kresli čáry vedle sebe (~1 mm).
         </div>
       </div>`;
   } else {
@@ -199,7 +199,7 @@ export function renderSheetHtml(project, teamIdx) {
           Arch týmu: <span style="text-decoration:underline; text-underline-offset:1mm;">${escapeHtml(team.name)}</span>
         </div>
         <div style="font-size:2.6mm; color:#444; margin-top:0.8mm; line-height:1.2;">
-          Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou).
+          Zakresluj trasy ostatních týmů. Každý tým jinou barevnou fixou (ne černou/šedou). Při souběhu kresli čáry vedle sebe (~1 mm).
         </div>
       </div>`;
   }

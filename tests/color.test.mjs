@@ -6,6 +6,7 @@ import {
   deltaE,
   estimateWhite,
   whiteBalance,
+  whiteBalanceLocal,
   sampleInk,
   classifyInks,
   cleanMask,
@@ -191,4 +192,69 @@ test('cleanMask: odstraní izolované tečky a spojí 1px mezeru', () => {
   for (let x = 5; x <= 19; x++) {
     assert.equal(cleaned[15 * W + x], 1, `Pixel (${x}, 15) v čáře by měl být zachován`);
   }
+});
+
+test('whiteBalanceLocal: vyrovná stín v dolní polovině archu', () => {
+  const W = 160, H = 240;
+  const data = new Uint8ClampedArray(W * H * 4);
+
+  for (let y = 0; y < H; y++) {
+    const isShadow = y >= 140;
+    const pr = isShadow ? 145 : 245;
+    const pg = isShadow ? 145 : 245;
+    const pb = isShadow ? 155 : 245;
+    for (let x = 0; x < W; x++) {
+      const idx = (y * W + x) * 4;
+      data[idx] = pr;
+      data[idx + 1] = pg;
+      data[idx + 2] = pb;
+      data[idx + 3] = 255;
+    }
+  }
+
+  const img = { width: W, height: H, data };
+  const globalWhite = estimateWhite(img, { x: 0, y: 0, w: W, h: 120 });
+  const balanced = whiteBalance(img, globalWhite, { local: true });
+
+  // Papír v dolní zastíněné části (y = 225, x = 80) musí být vytažen k neutrální ~245
+  const idxBottom = (225 * W + 80) * 4;
+  assert.ok(balanced.data[idxBottom] > 215, `R ve stínu má být > 215, je ${balanced.data[idxBottom]}`);
+  assert.ok(balanced.data[idxBottom + 1] > 215, `G ve stínu má být > 215, je ${balanced.data[idxBottom + 1]}`);
+  assert.ok(balanced.data[idxBottom + 2] > 215, `B ve stínu má být > 215, je ${balanced.data[idxBottom + 2]}`);
+
+  // Horní neosvětlený papír zůstává ~245
+  const idxTop = (20 * W + 80) * 4;
+  assert.ok(Math.abs(balanced.data[idxTop] - 245) <= 5);
+});
+
+test('sampleInk + classifyInks: sjednocení pro tmavou méně sytou fixu (chroma < 14)', () => {
+  const W = 60, H = 40;
+  const data = new Uint8ClampedArray(W * H * 4);
+
+  // Pozadí: šedý podklad (180, 180, 180)
+  for (let i = 0; i < W * H * 4; i += 4) {
+    data[i] = 180; data[i + 1] = 180; data[i + 2] = 180; data[i + 3] = 255;
+  }
+
+  // Tmavě modrošedá fixa v kalibračním obdélníku (x=5..15, y=5..10) i v mapě (y=25, x=10..50)
+  const inkRgb = [55, 65, 82]; // L ~ 27, chroma ~ 10
+  for (let y = 5; y <= 9; y++) {
+    for (let x = 5; x <= 14; x++) {
+      const idx = (y * W + x) * 4;
+      data[idx] = inkRgb[0]; data[idx + 1] = inkRgb[1]; data[idx + 2] = inkRgb[2];
+    }
+  }
+  for (let x = 10; x < 50; x++) {
+    const idx = (25 * W + x) * 4;
+    data[idx] = inkRgb[0]; data[idx + 1] = inkRgb[1]; data[idx + 2] = inkRgb[2];
+  }
+
+  const img = { width: W, height: H, data };
+  const sampled = sampleInk(img, { x: 0, y: 0, w: 20, h: 15 });
+  assert.ok(sampled !== null, 'Tmavá méně sytá fixa byla úspěšně navzorkována');
+  assert.ok(sampled.chroma >= 5 && sampled.chroma < 14, `Chroma fixy je ${sampled.chroma}`);
+
+  const labels = classifyInks(img, { x: 0, y: 18, w: W, h: 20 }, [{ lab: sampled.lab }], { minChroma: 14, maxDist: 40 });
+  assert.equal(labels[25 * W + 25], 1, 'Tmavá méně sytá fixa je rozpoznána i na mapě');
+  assert.equal(labels[20 * W + 25], 0, 'Neutrální šedá mapa zůstává ignorována');
 });

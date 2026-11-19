@@ -20,6 +20,16 @@ let isBatchProcessing = false;
 let batchProgressText = '';
 let activeModalBackdrop = null;
 
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Získání nastavení vyhodnocení s výchozími hodnotami z DEFAULT_OPTS
  */
@@ -28,11 +38,14 @@ function getEvalOpts(project) {
   return {
     ...DEFAULT_OPTS,
     tolM: Number.isFinite(p.tolM) ? p.tolM : DEFAULT_OPTS.tolM,
+    maxTolM: Number.isFinite(p.maxTolM) ? p.maxTolM : DEFAULT_OPTS.maxTolM,
+    wrongPenalty: Number.isFinite(p.wrongPenalty) ? p.wrongPenalty : DEFAULT_OPTS.wrongPenalty,
+    stealthRefTracking: Number.isFinite(p.stealthRefTracking) ? p.stealthRefTracking : DEFAULT_OPTS.stealthRefTracking,
     minChroma: Number.isFinite(p.minChroma) ? p.minChroma : DEFAULT_OPTS.minChroma,
     maxDist: Number.isFinite(p.maxDist) ? p.maxDist : DEFAULT_OPTS.maxDist,
     minArea: Number.isFinite(p.minArea) ? p.minArea : DEFAULT_OPTS.minArea,
     allowedGapMin: Number.isFinite(p.allowedGapMin) ? p.allowedGapMin : 5,
-    penaltyPerMin: Number.isFinite(p.penaltyPerMin) ? p.penaltyPerMin : 2,
+    penaltyPerMin: Number.isFinite(p.penaltyPerMin) ? p.penaltyPerMin : 0,
   };
 }
 
@@ -143,6 +156,7 @@ function persistResults(project, sheetResults, tracks, evalOpts, saveProject) {
   const scoreRows = gameScore(project, sheetResults, tracks, {
     allowedGapMin: evalOpts.allowedGapMin,
     penaltyPerMin: evalOpts.penaltyPerMin,
+    stealthRefTracking: evalOpts.stealthRefTracking,
   });
 
   const sheetsData = {};
@@ -206,6 +220,7 @@ function exportResultsCsv(project, sheetResults, tracks, evalOpts) {
   const scoreRows = gameScore(project, sheetResults, tracks, {
     allowedGapMin: evalOpts.allowedGapMin,
     penaltyPerMin: evalOpts.penaltyPerMin,
+    stealthRefTracking: evalOpts.stealthRefTracking,
   });
 
   const lines = [];
@@ -276,6 +291,32 @@ function exportResultsCsv(project, sheetResults, tracks, evalOpts) {
       ].join(';'));
     });
   });
+
+  if (Array.isArray(project.checkpoints) && project.checkpoints.length > 0) {
+    lines.push(``);
+    lines.push(`KONTROLA BODŮ POVINNÉHO PRŮCHODU (MIMO BODOVÁNÍ)`);
+    const cpHeaders = project.checkpoints.map(cp => csvEscape(`${cp.name} (${cp.radiusM || 50} m)`));
+    lines.push([`Tým`, ...cpHeaders].join(';'));
+    project.teams.forEach((team, tIdx) => {
+      const tr = tracks[tIdx];
+      const cells = [csvEscape(team.name)];
+      project.checkpoints.forEach((_, cpIdx) => {
+        if (!tr) {
+          cells.push('Chybí GPX');
+          return;
+        }
+        const cpRes = tr.checkpoints?.[cpIdx];
+        if (!cpRes || cpRes.minDistM == null) {
+          cells.push('—');
+        } else if (cpRes.passed) {
+          cells.push(`Prošli (${Math.round(cpRes.minDistM)} m)`);
+        } else {
+          cells.push(`Neprošli (${Math.round(cpRes.minDistM)} m)`);
+        }
+      });
+      lines.push(cells.join(';'));
+    });
+  }
 
   const csvContent = lines.join('\r\n');
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -387,6 +428,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
       ? gameScore(project, sheetResultsMap, tracks, {
           allowedGapMin: evalOpts.allowedGapMin,
           penaltyPerMin: evalOpts.penaltyPerMin,
+          stealthRefTracking: evalOpts.stealthRefTracking,
         })
       : (project.results?.game || null);
 
@@ -447,6 +489,22 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
       sectionEl.appendChild(alertGpxErr);
     }
 
+    const gapWarnings = [];
+    for (let t = 0; t < nTeams; t++) {
+      const tr = tracks[t];
+      if (tr && tr.gaps && tr.gaps.length > 0) {
+        const tName = escapeHtml(project.teams[t]?.name || `Tým ${t + 1}`);
+        const gapMin = Math.max(1, Math.round(tr.gapS / 60));
+        gapWarnings.push(`<strong>${tName}</strong> (${tr.gaps.length}×, cca ${gapMin} min)`);
+      }
+    }
+    if (gapWarnings.length > 0) {
+      const alertGap = document.createElement('div');
+      alertGap.className = 'alert alert-warning';
+      alertGap.innerHTML = `Zjištěn výpadek GPS v nahraných trasách: ${gapWarnings.join(', ')}. V případě potřeby můžete trasu ručně upravit v mapě a v záložce „4. GPX trasy“ nahrát opravené GPX.`;
+      sectionEl.appendChild(alertGap);
+    }
+
     // 2. Celkové pořadí hry (pokud jsou k dispozici výsledky)
     if (gameScoreRows && gameScoreRows.length > 0) {
       const scoreCard = document.createElement('div');
@@ -465,7 +523,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
                 <th style="width:48px;">Pořadí</th>
                 <th>Tým</th>
                 <th class="th-num" title="Průměrné skóre z zakreslení cizích týmů (0–100)">Stopování</th>
-                <th class="th-num" title="100 − průměr skóre, se kterým tento tým zakreslili ostatní">Utajení</th>
+                <th class="th-num" title="100 − průměr skóre, se kterým tým zakreslili ostatní; odemčeno stopováním (plné od ${evalOpts.stealthRefTracking} b)">Utajení</th>
                 <th class="th-num" title="Součet výpadků GPX záznamu">Výpadky GPX</th>
                 <th class="th-num" title="Penalizace za výpadky GPX nad ${evalOpts.allowedGapMin} min (${evalOpts.penaltyPerMin} b/min)">Penalizace</th>
                 <th class="th-num" title="Celkové body týmu" style="font-weight:700;">Celkem</th>
@@ -474,17 +532,22 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
             <tbody>
               ${gameScoreRows.map((r, rank) => {
                 const teamObj = project.teams[r.team];
+                const stealthHtml = r.stealth != null
+                  ? (r.rawStealth != null && r.stealth < r.rawStealth
+                      ? `<span title="Odemčeno podle stopování (${r.tracking}/${evalOpts.stealthRefTracking} b) – původně ${r.rawStealth} b">${renderScoreBadge(r.stealth)} <span style="font-size:11px; color:var(--text-muted);">(z ${r.rawStealth} b)</span></span>`
+                      : renderScoreBadge(r.stealth))
+                  : '<span style="color:var(--text-muted);">–</span>';
                 return `
                   <tr style="${rank === 0 ? 'background-color: #f0fdf4; font-weight:600;' : ''}">
                     <td>${rank + 1}.</td>
                     <td>
                       <div style="display:flex; align-items:center; gap:8px;">
                         <span class="team-dot" style="background-color:${teamObj ? teamObj.color : '#888'};"></span>
-                        <span>${r.name}</span>
+                        <span>${escapeHtml(r.name)}</span>
                       </div>
                     </td>
                     <td class="num-cell">${renderScoreBadge(r.tracking)}</td>
-                    <td class="num-cell">${r.stealth != null ? renderScoreBadge(r.stealth) : '<span style="color:var(--text-muted);">–</span>'}</td>
+                    <td class="num-cell">${stealthHtml}</td>
                     <td class="num-cell">${r.gapMin != null ? `${r.gapMin} min` : '<span style="color:var(--text-muted);">–</span>'}</td>
                     <td class="num-cell" style="${r.penalty > 0 ? 'color:var(--danger); font-weight:600;' : ''}">
                       ${r.penalty > 0 ? `-${r.penalty} b` : '0 b'}
@@ -536,6 +599,58 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
         </div>
       `;
       sectionEl.appendChild(scoreCard);
+    }
+
+    // 2b. Kontrola bodů povinného průchodu (mimo bodování)
+    if (Array.isArray(project.checkpoints) && project.checkpoints.length > 0) {
+      const cpCard = document.createElement('div');
+      cpCard.className = 'card';
+      cpCard.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+          <h3 class="card-title" style="margin-bottom:0;">Kontrola bodů povinného průchodu (mimo bodování)</h3>
+          <span style="font-size:12px; color:var(--text-muted);">Informační kontrola z GPX tras (nezapočítává se do skóre).</span>
+        </div>
+        <div class="eval-table-wrap" style="margin-top:0; margin-bottom:0;">
+          <table class="eval-table" style="font-size:12px;">
+            <thead>
+              <tr>
+                <th>Tým</th>
+                ${project.checkpoints.map(cp => `<th class="th-num">${escapeHtml(cp.name)} <span style="font-weight:normal;">(${cp.radiusM || 50} m)</span></th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${project.teams.map((t, tIdx) => {
+                const tr = tracks[tIdx];
+                return `
+                  <tr>
+                    <td style="font-weight:600;">
+                      <span class="team-dot" style="background-color:${t.color};"></span> ${escapeHtml(t.name)}
+                    </td>
+                    ${project.checkpoints.map((_, cpIdx) => {
+                      if (!tr) {
+                        return `<td class="num-cell" style="color:var(--text-muted);">— (chybí GPX)</td>`;
+                      }
+                      const cpRes = tr.checkpoints?.[cpIdx];
+                      if (!cpRes || cpRes.minDistM == null) {
+                        return `<td class="num-cell" style="color:var(--text-muted);">—</td>`;
+                      }
+                      const distStr = `${Math.round(cpRes.minDistM)} m`;
+                      if (cpRes.passed) {
+                        const timeTip = cpRes.reachedAt != null
+                          ? `Čas průchodu: ${new Date(cpRes.reachedAt).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}`
+                          : '';
+                        return `<td class="num-cell"><span class="score-badge score-high" style="font-size:11px;" title="${escapeHtml(timeTip)}">✓ Prošli (${distStr})</span></td>`;
+                      }
+                      return `<td class="num-cell"><span class="score-badge score-low" style="font-size:11px;">✕ Neprošli (${distStr})</span></td>`;
+                    }).join('')}
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      sectionEl.appendChild(cpCard);
     }
 
     // 3. Karty archů jednotlivých týmů
@@ -596,7 +711,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
           warnList.className = 'eval-warnings-list';
           res.warnings.forEach(w => {
             const li = document.createElement('li');
-            li.innerHTML = `⚠️ ${w}`;
+            li.textContent = w;
             warnList.appendChild(li);
           });
           detailsWrap.appendChild(warnList);
@@ -610,7 +725,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
           const rmsMm = Number(res.registration.rmsMm || 0).toFixed(2);
           const pxPerMm = res.registration.pxPerMm ? `${Number(res.registration.pxPerMm).toFixed(1)} px/mm` : '';
           regInfo.innerHTML = `
-            <span>Značky: <strong>${markersCnt} ze 4</strong></span>
+            <span>Značky: <strong>${markersCnt} z 8</strong></span>
             <span>Chyba registrace: <strong>${rmsMm} mm</strong></span>
             ${pxPerMm ? `<span>Měřítko fotky: <strong>${pxPerMm}</strong></span>` : ''}
           `;
@@ -681,7 +796,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
 
           const hint = document.createElement('div');
           hint.className = 'eval-canvas-hint';
-          hint.innerHTML = '🔍 Klepnutím na obrázek otevřete zvětšený náhled pro detailní kontrolu';
+          hint.innerHTML = 'Klepnutím na obrázek otevřete zvětšený náhled pro detailní kontrolu';
           canvasContainer.appendChild(hint);
 
           detailsWrap.appendChild(canvasContainer);
@@ -762,12 +877,27 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
     const details = document.createElement('details');
     details.className = 'eval-settings-details';
     details.innerHTML = `
-      <summary class="eval-settings-summary">⚙️ Pokročilé parametry vyhodnocení a penalizací</summary>
+      <summary class="eval-settings-summary">Pokročilé parametry vyhodnocení a penalizací</summary>
       <div class="eval-settings-grid">
         <div class="form-group">
-          <label class="form-label" for="eval-opt-tolm">Tolerance v terénu (tolM) [m]</label>
+          <label class="form-label" for="eval-opt-tolm">Tolerance safe pásu (tolM) [m]</label>
           <input type="number" id="eval-opt-tolm" class="form-control" value="${evalOpts.tolM}" min="5" max="300" step="5" />
-          <span style="font-size:11px; color:var(--text-muted);">Do této vzdálenosti plný bod, do 2×tolM lineárně klesá.</span>
+          <span style="font-size:11px; color:var(--text-muted);">Do této vzdálenosti plných 100 % bodů (při 1:15 000 je 50 m ≈ 3,3 mm).</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="eval-opt-maxtolm">Hranice nulových bodů (maxTolM) [m]</label>
+          <input type="number" id="eval-opt-maxtolm" class="form-control" value="${evalOpts.maxTolM}" min="50" max="1000" step="25" />
+          <span style="font-size:11px; color:var(--text-muted);">Nad touto vzdáleností 0 bodů (při 1:15 000 je 300 m ≈ 2 cm).</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="eval-opt-wrongpenalty">Přísnost penalizace chyb (wrongPenalty)</label>
+          <input type="number" id="eval-opt-wrongpenalty" class="form-control" value="${evalOpts.wrongPenalty}" min="0.5" max="10" step="0.5" />
+          <span style="font-size:11px; color:var(--text-muted);">Vyšší hodnota přísněji trestá špatně zakreslené čáry a slepé hádání.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="eval-opt-stealthref">Práh stopování pro plné utajení [body]</label>
+          <input type="number" id="eval-opt-stealthref" class="form-control" value="${evalOpts.stealthRefTracking}" min="0" max="100" step="5" />
+          <span style="font-size:11px; color:var(--text-muted);">Minimální skóre stopování pro 100 % utajení (proti kempování; 0 = vypnuto).</span>
         </div>
         <div class="form-group">
           <label class="form-label" for="eval-opt-minchroma">Minimální sytost barvy (minChroma)</label>
@@ -796,7 +926,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
         </div>
       </div>
       <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;">
-        <button type="button" class="btn btn-primary btn-sm" id="eval-btn-save-opts">💾 Uložit parametry</button>
+        <button type="button" class="btn btn-primary btn-sm" id="eval-btn-save-opts">Uložit parametry</button>
         <button type="button" class="btn btn-secondary btn-sm" id="eval-btn-reset-opts">Obnovit výchozí hodnoty</button>
       </div>
     `;
@@ -993,31 +1123,42 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
     const saveOptsBtn = sectionEl.querySelector('#eval-btn-save-opts');
     if (saveOptsBtn) {
       saveOptsBtn.addEventListener('click', () => {
-        const tolM = Number(sectionEl.querySelector('#eval-opt-tolm')?.value);
-        const minChroma = Number(sectionEl.querySelector('#eval-opt-minchroma')?.value);
-        const maxDist = Number(sectionEl.querySelector('#eval-opt-maxdist')?.value);
-        const minArea = Number(sectionEl.querySelector('#eval-opt-minarea')?.value);
-        const allowedGapMin = Number(sectionEl.querySelector('#eval-opt-allowedgap')?.value);
-        const penaltyPerMin = Number(sectionEl.querySelector('#eval-opt-penaltypermin')?.value);
+        const readNum = (sel) => {
+          const el = sectionEl.querySelector(sel);
+          if (!el || String(el.value).trim() === '') return NaN;
+          return Number(el.value);
+        };
+        const tolM = readNum('#eval-opt-tolm');
+        const maxTolM = readNum('#eval-opt-maxtolm');
+        const wrongPenalty = readNum('#eval-opt-wrongpenalty');
+        const stealthRefTracking = readNum('#eval-opt-stealthref');
+        const minChroma = readNum('#eval-opt-minchroma');
+        const maxDist = readNum('#eval-opt-maxdist');
+        const minArea = readNum('#eval-opt-minarea');
+        const allowedGapMin = readNum('#eval-opt-allowedgap');
+        const penaltyPerMin = readNum('#eval-opt-penaltypermin');
 
         project.evalOpts = {
-          tolM: isNaN(tolM) ? DEFAULT_OPTS.tolM : tolM,
-          minChroma: isNaN(minChroma) ? DEFAULT_OPTS.minChroma : minChroma,
-          maxDist: isNaN(maxDist) ? DEFAULT_OPTS.maxDist : maxDist,
-          minArea: isNaN(minArea) ? DEFAULT_OPTS.minArea : minArea,
-          allowedGapMin: isNaN(allowedGapMin) ? 5 : allowedGapMin,
-          penaltyPerMin: isNaN(penaltyPerMin) ? 2 : penaltyPerMin,
+          tolM: Number.isFinite(tolM) ? tolM : DEFAULT_OPTS.tolM,
+          maxTolM: Number.isFinite(maxTolM) ? maxTolM : DEFAULT_OPTS.maxTolM,
+          wrongPenalty: Number.isFinite(wrongPenalty) ? wrongPenalty : DEFAULT_OPTS.wrongPenalty,
+          stealthRefTracking: Number.isFinite(stealthRefTracking) ? stealthRefTracking : DEFAULT_OPTS.stealthRefTracking,
+          minChroma: Number.isFinite(minChroma) ? minChroma : DEFAULT_OPTS.minChroma,
+          maxDist: Number.isFinite(maxDist) ? maxDist : DEFAULT_OPTS.maxDist,
+          minArea: Number.isFinite(minArea) ? minArea : DEFAULT_OPTS.minArea,
+          allowedGapMin: Number.isFinite(allowedGapMin) ? allowedGapMin : 5,
+          penaltyPerMin: Number.isFinite(penaltyPerMin) ? penaltyPerMin : 0,
         };
 
         saveProject(project);
 
-        // Pokud jsou změněny jen penalizace (allowedGapMin, penaltyPerMin), přepočítáme skóre rovnou
-        const { tracks } = buildTracks(project, project.evalOpts);
+        const savedOpts = getEvalOpts(project);
+        const { tracks } = buildTracks(project, savedOpts);
         const sheetResultsMap = {};
         for (let i = 0; i < project.teams.length; i++) {
           if (inMemoryResults.has(i)) sheetResultsMap[i] = inMemoryResults.get(i);
         }
-        persistResults(project, sheetResultsMap, tracks, project.evalOpts, saveProject);
+        persistResults(project, sheetResultsMap, tracks, savedOpts, saveProject);
         render();
       });
     }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { softWeight, compareDrawing, prepareTrack, gameScore, renderOverlay } from '../js/core/evaluate.js';
+import { edt } from '../js/core/edt.js';
 import { fitTPS, warpSheet } from '../js/core/homography.js';
 
 test('fitTPS: vyhlazení nelineární deformace / pomačkání papíru', () => {
@@ -274,4 +275,162 @@ test('gameScore: přeskočí nevyhodnocovaný tým (prázdné kalibrační pole)
   // Stealth pro T4: nikdo ho nestopoval, stealth je 0 (chybí trasa)
   const t4 = scores.find(s => s.team === 3);
   assert.equal(t4.stealth, 0);
+});
+
+test('compareDrawing: postupný pokles do maxTolM = 300 m (~2 cm při 1:15 000)', () => {
+  const w = 120, h = 120;
+  const mPerPx = 3.75; // 1:15 000 při 4 px/mm
+  const trackPx = [];
+  for (let x = 10; x <= 110; x += 2) trackPx.push({ x, y: 10, gap: false });
+
+  // Čára ve vzdálenosti 47 px (~176 m -> mezi 50 m a 300 m)
+  const drawnMid = new Uint8Array(w * h);
+  for (let x = 10; x <= 110; x++) drawnMid[57 * w + x] = 1;
+  const resMid = compareDrawing(drawnMid, w, h, trackPx, mPerPx, 50, { maxTolM: 300 });
+  assert.ok(resMid.recall > 0.45 && resMid.recall < 0.55, `Recall v 176 m má být ~0.5, byl ${resMid.recall}`);
+  assert.ok(resMid.score > 30 && resMid.score < 60, `Skóre v 176 m má být mezi 30 a 60, bylo ${resMid.score}`);
+
+  // Čára ve vzdálenosti 85 px (~319 m > 300 m) -> 0 bodů
+  const drawnFar = new Uint8Array(w * h);
+  for (let x = 10; x <= 110; x++) drawnFar[95 * w + x] = 1;
+  const resFar = compareDrawing(drawnFar, w, h, trackPx, mPerPx, 50, { maxTolM: 300 });
+  assert.equal(resFar.recall, 0);
+  assert.equal(resFar.precision, 0);
+  assert.equal(resFar.score, 0);
+});
+
+test('compareDrawing: ~1mm čára je optimum, tlustá 4mm čára má nižší Precision a nerozšíří Recall', () => {
+  const w = 80, h = 80;
+  const mPerPx = 3.75;
+  const trackOnLine = [];
+  for (let x = 10; x <= 70; x += 2) trackOnLine.push({ x, y: 40, gap: false });
+
+  // Optimální ~1mm čára (4 px při ppm = 4)
+  const thin = new Uint8Array(w * h);
+  for (let y = 38; y <= 41; y++) for (let x = 10; x <= 70; x++) thin[y * w + x] = 1;
+  const resThin = compareDrawing(thin, w, h, trackOnLine, mPerPx, 50, { ppm: 4, maxTolM: 300 });
+  assert.equal(resThin.thicknessFactor, 1);
+  assert.equal(resThin.score, 100);
+
+  // Tlustá ~4mm čára (17 px při ppm = 4)
+  const thick = new Uint8Array(w * h);
+  for (let y = 32; y <= 48; y++) for (let x = 10; x <= 70; x++) thick[y * w + x] = 1;
+  const resThick = compareDrawing(thick, w, h, trackOnLine, mPerPx, 50, { ppm: 4, maxTolM: 300 });
+  assert.ok(resThick.thicknessFactor < 0.4, `Faktor tloušťky u 4mm čáry má být < 0.4, byl ${resThick.thicknessFactor}`);
+  assert.ok(resThick.precision < 0.45, `Precision u 4mm čáry má být < 0.45, byla ${resThick.precision}`);
+  assert.ok(resThick.score < resThin.score - 30);
+
+  // Tlustá čára nerozšíří dosah jádra pro Recall (trasa v y = 21 je 11 px od vnějšího okraje y = 32,
+  // ale > 16 px od ~1mm jádra uprostřed, takže Recall zůstává 0 stejně jako u tenké čáry)
+  const trackOutside = [];
+  for (let x = 10; x <= 70; x += 2) trackOutside.push({ x, y: 21, gap: false });
+  const resThinReach = compareDrawing(thin, w, h, trackOutside, mPerPx, 30, { ppm: 4, maxTolM: 60 });
+  const resThickReach = compareDrawing(thick, w, h, trackOutside, mPerPx, 30, { ppm: 4, maxTolM: 60 });
+  assert.equal(resThinReach.recall, 0);
+  assert.equal(resThickReach.recall, 0, 'Vnější okraj tlusté čáry nerozšíří dosah Recallu');
+});
+
+test('compareDrawing: souběžné čáry vedle sebe rozšíří toleranční pásmo', () => {
+  const w = 80, h = 80;
+  const mPerPx = 3.75;
+  const trackPx = [];
+  for (let x = 10; x <= 70; x += 2) trackPx.push({ x, y: 30, gap: false });
+
+  // Tým 1 na trase (y = 30), tým 2 souběžně o 9 px (~2.25 mm) vedle (y = 39)
+  const drawn1 = new Uint8Array(w * h);
+  for (let x = 10; x <= 70; x++) drawn1[30 * w + x] = 1;
+  const dd1 = edt(drawn1, w, h);
+
+  const drawn2 = new Uint8Array(w * h);
+  for (let x = 10; x <= 70; x++) drawn2[39 * w + x] = 1;
+
+  // Bez souběhu je 9 px mimo safe pás tolPx = 5.33 px (tolM = 20 m)
+  const withoutParallel = compareDrawing(drawn2, w, h, trackPx, mPerPx, 20, { ppm: 4, maxTolM: 40 });
+  assert.ok(withoutParallel.score < 85, `Bez rozšíření souběhem má být skóre < 85, bylo ${withoutParallel.score}`);
+
+  // Se souběhem (otherDrawnEdts) se safe pás rozšíří a tým 2 dostane plných 100
+  const withParallel = compareDrawing(drawn2, w, h, trackPx, mPerPx, 20, {
+    ppm: 4,
+    maxTolM: 40,
+    parallelShiftMm: 2.2,
+    otherDrawnEdts: [dd1],
+  });
+  assert.equal(withParallel.recall, 1);
+  assert.equal(withParallel.precision, 1);
+  assert.equal(withParallel.score, 100);
+});
+
+test('compareDrawing: wrongPenalty = 2.0 přísněji trestá špatně zakreslené čáry / hádání', () => {
+  const w = 100, h = 100;
+  const trackPx = [];
+  for (let x = 10; x <= 50; x++) trackPx.push({ x, y: 10, gap: false });
+
+  // Polovina čáry správně na trase (y = 10), polovina úplně mimo (y = 80)
+  const drawn = new Uint8Array(w * h);
+  for (let x = 10; x <= 50; x++) {
+    drawn[10 * w + x] = 1;
+    drawn[80 * w + x] = 1;
+  }
+
+  const resDefault = compareDrawing(drawn, w, h, trackPx, 1, 5, { maxTolM: 10, wrongPenalty: 2.0 });
+  const resMild = compareDrawing(drawn, w, h, trackPx, 1, 5, { maxTolM: 10, wrongPenalty: 1.0 });
+  assert.ok(Math.abs(resMild.precision - 0.5) < 0.02);
+  assert.ok(Math.abs(resDefault.precision - 1 / 3) < 0.02, `Precision při wrongPenalty=2 má být ~0.333, byla ${resDefault.precision}`);
+});
+
+test('compareDrawing: neutrální zóna při výpadku GPX soupeře (gap: true)', () => {
+  const w = 100, h = 40;
+  const trackPx = [
+    { x: 10, y: 20, gap: false },
+    { x: 30, y: 20, gap: false },
+    { x: 35, y: 20, gap: true },
+    { x: 50, y: 20, gap: true },
+    { x: 65, y: 20, gap: true },
+    { x: 70, y: 20, gap: false },
+    { x: 90, y: 20, gap: false },
+  ];
+
+  // Stopující tým správně zakreslí celou trasu včetně úseku, kde soupeři vypadla GPS
+  const drawn = new Uint8Array(w * h);
+  for (let x = 10; x <= 90; x++) drawn[20 * w + x] = 1;
+
+  const res = compareDrawing(drawn, w, h, trackPx, 1, 5, { maxTolM: 10 });
+  assert.equal(res.recall, 1);
+  assert.equal(res.precision, 1);
+  assert.equal(res.score, 100);
+});
+
+test('gameScore: ochrana proti kempování odemkne utajení až podle stopování', () => {
+  const project = {
+    teams: [
+      { name: 'Kemper', color: '#f00' },
+      { name: 'Poloviční', color: '#0f0' },
+      { name: 'Aktivní', color: '#00f' },
+    ]
+  };
+  const sheetResults = {
+    0: { perTeam: [{ team: 1, score: 0 }, { team: 2, score: 0 }] },     // tracking = 0
+    1: { perTeam: [{ team: 0, score: 0 }, { team: 2, score: 40 }] },    // tracking = 20
+    2: { perTeam: [{ team: 0, score: 0 }, { team: 1, score: 100 }] },   // tracking = 50
+  };
+  const tracks = { 0: { gapS: 0 }, 1: { gapS: 0 }, 2: { gapS: 0 } };
+
+  const scores = gameScore(project, sheetResults, tracks, { stealthRefTracking: 40 });
+  const kemper = scores.find(s => s.team === 0);
+  const half = scores.find(s => s.team === 1);
+  const active = scores.find(s => s.team === 2);
+
+  assert.equal(kemper.rawStealth, 100);
+  assert.equal(kemper.stealth, 0, 'Kdo vůbec nestopoval, nedostane body za utajení');
+  assert.equal(kemper.total, 0);
+
+  assert.equal(half.tracking, 20);
+  assert.equal(half.rawStealth, 50);
+  assert.equal(half.stealth, 25, 'Poloviční stopování (20/40) odemkne 50 % utajení');
+  assert.equal(half.total, 45);
+
+  assert.equal(active.tracking, 50);
+  assert.equal(active.rawStealth, 80);
+  assert.equal(active.stealth, 80, 'Aktivní stopování (>= 40) odemkne 100 % utajení');
+  assert.equal(active.total, 130);
 });
