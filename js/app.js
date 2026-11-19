@@ -68,6 +68,9 @@ function loadProject() {
       const data = JSON.parse(raw);
       if (data && data.version === 1) {
         data.markerGrid = 8;
+        if (data.name === 'Jarní stopovačka 2026') {
+          data.name = 'Zrádci 2026';
+        }
         return data;
       }
     }

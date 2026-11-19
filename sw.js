@@ -1,5 +1,5 @@
 // Service Worker pro Stopovačku (100% offline provoz v terénu na iPhone / Android / Desktop)
-const CACHE_NAME = 'stopovacka-v12';
+const CACHE_NAME = 'stopovacka-v13';
 
 const STATIC_ASSETS = [
   './',
@@ -63,34 +63,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first se stale-while-revalidate pro lokální aplikační soubory
+  // Network-first s fallbackem na cache: online vždy konzistentní nová verze (žádné rozbití mezi index.html a JS moduly),
+  // offline v terénu spolehlivě funguje z mezipaměti.
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Na pozadí zkusíme stáhnout novější verzi, pokud je síť dostupná
-        fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, networkResponse);
-            });
-          }
-        }).catch(() => {
-          // Běh v offline režimu – ignorujeme chybu sítě
-        });
-        return cachedResponse;
-      }
-
-      // Není v cache, stáhneme a uložíme
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200) {
-          return networkResponse;
-        }
+    fetch(event.request).then((networkResponse) => {
+      if (networkResponse && networkResponse.status === 200) {
         const responseToCache = networkResponse.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, responseToCache);
         });
-        return networkResponse;
-      });
+      }
+      return networkResponse;
+    }).catch(() => {
+      return caches.match(event.request);
     })
   );
 });
