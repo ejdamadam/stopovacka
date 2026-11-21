@@ -49,7 +49,8 @@ test('renderSheetHtml: vygeneruje platný HTML arch s požadovanými prvky', () 
   assert.ok(html.includes('sheet-marker-br'));
   assert.ok(html.includes('sheet-marker-bl'));
 
-  // 2. Hlavička bez popisu „Arch týmu:“ a bez instrukcí
+  // 2. Hlavička: pouze samotný název týmu (bez „Arch týmu:“ a bez instrukcí)
+  assert.ok(html.includes('Lišky'));
   assert.ok(!html.includes('Arch týmu:'));
   assert.ok(!html.includes('Zakresluj trasy ostatních týmů'));
 

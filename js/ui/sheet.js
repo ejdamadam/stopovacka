@@ -177,8 +177,24 @@ export function renderSheetHtml(project, teamIdx) {
     return `<div class="sheet-marker sheet-marker-${roleCls}" style="position:absolute; left:${m.x}mm; top:${m.y}mm; width:${m.size}mm; height:${m.size}mm; line-height:0; pointer-events:none;">${svg}</div>`;
   }).join('\n');
 
-  // 2. Hlavička archu záměrně prázdná (instrukce týmy dostávají před začátkem hry)
-  const headerHtml = '';
+  // 2. Hlavička archu (pouze název týmu, bez prefixu a instrukcí)
+  const header = layout.header;
+  let headerHtml = '';
+  if (header.left) {
+    headerHtml = `
+      <div class="sheet-header sheet-header-left" style="position:absolute; left:${header.left.x}mm; top:${header.left.y}mm; width:${header.left.w}mm; height:${header.left.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; box-sizing:border-box; padding:0 1.5mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="font-size:4.6mm; font-weight:700; line-height:1.2; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
+          ${escapeHtml(team.name)}
+        </div>
+      </div>`;
+  } else {
+    headerHtml = `
+      <div class="sheet-header" style="position:absolute; left:${header.x}mm; top:${header.y}mm; width:${header.w}mm; height:${header.h}mm; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; box-sizing:border-box; padding:0 2mm; overflow:hidden; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="font-size:5mm; font-weight:700; line-height:1.2; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
+          ${escapeHtml(team.name)}
+        </div>
+      </div>`;
+  }
 
   // 3. Mapové pole (šedotónová mapa, měřítko, atribuce)
   const mapRect = layout.mapRect;
