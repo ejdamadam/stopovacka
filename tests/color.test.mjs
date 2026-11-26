@@ -258,3 +258,84 @@ test('sampleInk + classifyInks: sjednocení pro tmavou méně sytou fixu (chroma
   assert.equal(labels[25 * W + 25], 1, 'Tmavá méně sytá fixa je rozpoznána i na mapě');
   assert.equal(labels[20 * W + 25], 0, 'Neutrální šedá mapa zůstává ignorována');
 });
+
+test('classifyInks s refMap: potlačí barevný podklad mapy (včetně posunu a desaturace tisku) a zachová fixy', () => {
+  const W = 80, H = 60;
+  const refData = new Uint8ClampedArray(W * H * 4);
+  const photoData = new Uint8ClampedArray(W * H * 4);
+
+  const setPx = (arr, x, y, r, g, b) => {
+    const idx = (y * W + x) * 4;
+    arr[idx] = r; arr[idx + 1] = g; arr[idx + 2] = b; arr[idx + 3] = 255;
+  };
+
+  // 1) Čistá digitální mapa: bílé pozadí + světle zelený les (x < 40) + modrá řeka (y = 15..16) + červená turistická značka (y = 30..31)
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (x < 40) {
+        setPx(refData, x, y, 185, 225, 175); // les
+      } else {
+        setPx(refData, x, y, 255, 255, 255); // bílá mapa
+      }
+    }
+  }
+  for (let x = 0; x < W; x++) {
+    setPx(refData, x, 15, 70, 145, 235); setPx(refData, x, 16, 70, 145, 235); // modrá řeka
+    setPx(refData, x, 30, 225, 45, 45);  setPx(refData, x, 31, 225, 45, 45);  // červená značka
+  }
+
+  // 2) Fotka vytištěné mapy: simulace tisku (desaturace na ~70 %, bílý papír 245) + posun registrace o +2 px v Y
+  for (let y = 0; y < H; y++) {
+    const srcY = Math.max(0, y - 2);
+    for (let x = 0; x < W; x++) {
+      const sIdx = (srcY * W + x) * 4;
+      const r = refData[sIdx], g = refData[sIdx + 1], b = refData[sIdx + 2];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      const pr = Math.round((gray + 0.72 * (r - gray)) * (245 / 255));
+      const pg = Math.round((gray + 0.72 * (g - gray)) * (245 / 255));
+      const pb = Math.round((gray + 0.72 * (b - gray)) * (245 / 255));
+      setPx(photoData, x, y, pr, pg, pb);
+    }
+  }
+
+  // 3) Nakreslené fixy na fotce:
+  // - červená fixa přes bílý podklad i přes zelený les (y = 45, x = 10..70)
+  for (let x = 10; x < 70; x++) {
+    setPx(photoData, x, 45, 215, 25, 30);
+  }
+  // - tmavě zelená fixa nakreslená přes světle zelený les (y = 52, x = 5..35)
+  for (let x = 5; x < 35; x++) {
+    setPx(photoData, x, 52, 20, 130, 35);
+  }
+
+  const refMap = { width: W, height: H, data: refData };
+  const photo = { width: W, height: H, data: photoData };
+  const inks = [
+    { lab: srgbToLab(215, 25, 30) },  // červená fixa (štítek 1)
+    { lab: srgbToLab(35, 95, 210) },  // modrá fixa (štítek 2)
+    { lab: srgbToLab(20, 130, 35) },  // zelená fixa (štítek 3)
+  ];
+
+  // Bez refMap by červená turistická značka (y = 32 na posunuté fotce) chytila falešný štítek 1
+  const labelsNoRef = classifyInks(photo, { x: 0, y: 0, w: W, h: H }, inks, { minChroma: 18, maxDist: 36 });
+  assert.equal(labelsNoRef[32 * W + 50], 1, 'Bez refMap vyvolá červená turistická značka falešný poplach');
+
+  // S refMap jsou všechny tištěné barevné prvky (les, řeka, červená značka) potlačeny
+  const labelsRef = classifyInks(photo, { x: 0, y: 0, w: W, h: H }, inks, {
+    minChroma: 18,
+    maxDist: 36,
+    refMap,
+    refRect: { x: 0, y: 0, w: W, h: H },
+    bgMinDiff: 18,
+    bgRadius: 3,
+  });
+
+  assert.equal(labelsRef[17 * W + 50], 0, 'Modrá řeka na mapě musí být potlačena');
+  assert.equal(labelsRef[32 * W + 50], 0, 'Červená turistická značka (i posunutá o 2 px a desaturovaná) musí být potlačena');
+  assert.equal(labelsRef[8 * W + 15], 0, 'Světle zelený les na mapě musí být potlačen');
+
+  // Nakreslené fixy musí zůstat zachovány
+  assert.equal(labelsRef[45 * W + 20], 1, 'Červená fixa přes zelený les musí zůstat zachována');
+  assert.equal(labelsRef[45 * W + 55], 1, 'Červená fixa přes bílý podklad musí zůstat zachována');
+  assert.equal(labelsRef[52 * W + 20], 3, 'Tmavě zelená fixa přes světle zelený les musí zůstat zachována');
+});

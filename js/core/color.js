@@ -341,10 +341,97 @@ export function sampleInk(img, rect) {
 }
 
 /**
+ * Převede referenční obrázek mapy do plochého pole CIE Lab (Float32Array délky w*h*3).
+ * Bílou digitální mapy (255) přeškáluje na 245, aby odpovídala cílovému papíru po whiteBalance.
+ */
+function buildRefLab(refMap) {
+  const { width: W, height: H, data } = refMap;
+  const n = W * H;
+  const out = new Float32Array(n * 3);
+  const scale = 245 / 255;
+
+  for (let i = 0; i < n; i++) {
+    const idx = i * 4;
+    const rL = SRGB_TO_LIN[Math.round(data[idx] * scale)];
+    const gL = SRGB_TO_LIN[Math.round(data[idx + 1] * scale)];
+    const bL = SRGB_TO_LIN[Math.round(data[idx + 2] * scale)];
+
+    const X = 0.4124564 * rL + 0.3575761 * gL + 0.1804375 * bL;
+    const Y = 0.2126729 * rL + 0.7151522 * gL + 0.0721750 * bL;
+    const Z = 0.0193339 * rL + 0.1191920 * gL + 0.9503041 * bL;
+
+    const xr = X / XN, yr = Y / YN, zr = Z / ZN;
+    const fx = xr > EPS ? Math.cbrt(xr) : (KAPPA * xr + 16) / 116;
+    const fy = yr > EPS ? Math.cbrt(yr) : (KAPPA * yr + 16) / 116;
+    const fz = zr > EPS ? Math.cbrt(zr) : (KAPPA * zr + 16) / 116;
+
+    const o = i * 3;
+    out[o] = 116 * fy - 16;
+    out[o + 1] = 500 * (fx - fy);
+    out[o + 2] = 200 * (fy - fz);
+  }
+  return out;
+}
+
+/**
+ * Zjistí, zda pixel (Lp, ap, bp) odpovídá barevnému podkladu čisté referenční mapy v okolí (cx, cy).
+ * Zohledňuje jak přímou barevnou vzdálenost v Lab, tak gamutovou kompresi tiskárny (desaturaci odstínu).
+ */
+function matchesRefBackground(Lp, ap, bp, refLab, refW, refH, cx, cy, bgRadius, bgMinDiff2, perpLimit2) {
+  const y0 = Math.max(0, cy - bgRadius);
+  const y1 = Math.min(refH - 1, cy + bgRadius);
+  const x0 = Math.max(0, cx - bgRadius);
+  const x1 = Math.min(refW - 1, cx + bgRadius);
+
+  const checkPixel = (o) => {
+    const Lr = refLab[o];
+    const ar = refLab[o + 1];
+    const br = refLab[o + 2];
+
+    // 1) Přímá vážená vzdálenost v Lab (světlost L má vyšší váhu 0.7, aby tmavší fixa nad světlým lesem prošla)
+    const dL = (Lp - Lr) * 0.7;
+    const da = ap - ar;
+    const db = bp - br;
+    if (dL * dL + da * da + db * db <= bgMinDiff2) {
+      return true;
+    }
+
+    // 2) Model tiskové desaturace: barevný prvek mapy (Cr >= 8) vytištěný s nižší sytostí, ale stejným odstínem
+    const Cr2 = ar * ar + br * br;
+    if (Cr2 >= 64) {
+      const dot = ap * ar + bp * br;
+      if (dot > 0) {
+        const t = dot / Cr2;
+        if (t >= 0.30 && t <= 1.25 && Lp >= Lr - 18 && Lp <= Lr + 25) {
+          const pa = ap - t * ar;
+          const pb = bp - t * br;
+          if (pa * pa + pb * pb <= perpLimit2) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  // Nejdříve zkontrolujeme přesný střed (rychlý early-exit)
+  if (checkPixel((cy * refW + cx) * 3)) return true;
+
+  for (let ny = y0; ny <= y1; ny++) {
+    const rowOff = ny * refW;
+    for (let nx = x0; nx <= x1; nx++) {
+      if (nx === cx && ny === cy) continue;
+      if (checkPixel((rowOff + nx) * 3)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Klasifikace pixelů podle barev fix.
  * inks = [{lab:[L,a,b]}]
  * Výsledek: Uint8Array(width * height): 0 = nic, k+1 = inkoust k. Mimo rect 0.
- * opts = { minChroma: 14, maxDist: 40 }
+ * opts = { minChroma: 14, maxDist: 40, refMap: null, refRect: null, bgMinDiff: 18, bgRadius: 3 }
  */
 export function classifyInks(img, rect, inks, opts = {}) {
   const { width: W, height: H, data } = img;
@@ -381,8 +468,33 @@ export function classifyInks(img, rect, inks, opts = {}) {
   const rw = rect ? Math.min(W - rx, Math.floor(rect.w)) : W;
   const rh = rect ? Math.min(H - ry, Math.floor(rect.h)) : H;
 
+  // Volitelná korekce barevné mapy (odečítání referenčního podkladu)
+  const refMap = opts.refMap && opts.refMap.width > 0 && opts.refMap.height > 0 ? opts.refMap : null;
+  let refLab = null;
+  let refW = 0, refH = 0;
+  let refX0 = rx, refY0 = ry, refRectW = rw, refRectH = rh;
+  const bgMinDiff = opts.bgMinDiff ?? 18;
+  const bgMinDiff2 = bgMinDiff * bgMinDiff;
+  const perpLimit2 = (bgMinDiff * 0.65) * (bgMinDiff * 0.65);
+  const bgRadius = Math.max(0, Math.round(opts.bgRadius ?? 3));
+
+  if (refMap) {
+    refW = refMap.width;
+    refH = refMap.height;
+    refLab = buildRefLab(refMap);
+    if (opts.refRect) {
+      refX0 = opts.refRect.x;
+      refY0 = opts.refRect.y;
+      refRectW = Math.max(1, opts.refRect.w);
+      refRectH = Math.max(1, opts.refRect.h);
+    }
+  }
+
   for (let y = ry; y < ry + rh; y++) {
     const rowOff = y * W;
+    const cy = refLab
+      ? Math.max(0, Math.min(refH - 1, Math.round(((y - refY0 + 0.5) * refH) / refRectH - 0.5)))
+      : 0;
     for (let x = rx; x < rx + rw; x++) {
       const pIdx = rowOff + x;
       const idx = pIdx * 4;
@@ -425,6 +537,12 @@ export function classifyInks(img, rect, inks, opts = {}) {
 
       const limit2 = chroma2 < minChroma2 ? lowChromaMaxDist2 : maxDist2;
       if (bestDist2 <= limit2) {
+        if (refLab) {
+          const cx = Math.max(0, Math.min(refW - 1, Math.round(((x - refX0 + 0.5) * refW) / refRectW - 0.5)));
+          if (matchesRefBackground(L, a, bVal, refLab, refW, refH, cx, cy, bgRadius, bgMinDiff2, perpLimit2)) {
+            continue;
+          }
+        }
         out[pIdx] = bestK + 1;
       }
     }

@@ -4,11 +4,14 @@
 
 import { DEFAULT_OPTS, prepareTrack, evaluateSheet, renderOverlay, gameScore } from '../core/evaluate.js';
 import { parseGpx } from '../core/gpx.js';
-import { foreignTeams } from '../core/layout.js';
+import { foreignTeams, layoutForProject } from '../core/layout.js';
+import { renderMapToCanvas } from './sheet.js';
 
 // Paměť pro fotky v plném rozlišení (neukládá se do localStorage kvůli limitům paměti)
 const photosMap = new Map(); // teamIdx -> {width, height, data: Uint8ClampedArray}
 const inMemoryResults = new Map(); // teamIdx -> SheetResult
+let cachedRefMapKey = null;
+let cachedRefMapData = null;
 
 // Stav karet
 const cardStatus = {}; // teamIdx -> 'idle' | 'processing' | 'done' | 'error'
@@ -30,23 +33,145 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+const PRINT_MODE_LABELS = {
+  grayscale: 'Šedotónová',
+  colorFaded: 'Tlumená barevná',
+  color: 'Plnobarevná',
+};
+
+const SHEET_OVERRIDE_PRESETS = [
+  { value: 'A3|color', paper: 'A3', mapPrintMode: 'color', label: 'A3 · Plnobarevná' },
+  { value: 'A3|colorFaded', paper: 'A3', mapPrintMode: 'colorFaded', label: 'A3 · Tlumená barevná' },
+  { value: 'A3|grayscale', paper: 'A3', mapPrintMode: 'grayscale', label: 'A3 · Šedotónová' },
+  { value: 'A4|grayscale', paper: 'A4', mapPrintMode: 'grayscale', label: 'A4 · Šedotónová (záložní)' },
+  { value: 'A4|colorFaded', paper: 'A4', mapPrintMode: 'colorFaded', label: 'A4 · Tlumená barevná' },
+  { value: 'A4|color', paper: 'A4', mapPrintMode: 'color', label: 'A4 · Plnobarevná' },
+];
+
+/**
+ * Vrátí efektivní konfiguraci projektu pro vyhodnocení archu konkrétního týmu
+ * (umožňuje kombinovat např. ostré barevné A3 a záložní černobílé A4 v jednom projektu).
+ */
+function getEffectiveProjectForTeam(project, teamIdx) {
+  const ov = project?.sheetOverrides?.[teamIdx];
+  if (!ov || (!ov.paper && !ov.mapPrintMode)) return project;
+  return {
+    ...project,
+    paper: ov.paper || project.paper || 'A4',
+    mapPrintMode: ov.mapPrintMode || project.mapPrintMode || 'grayscale',
+  };
+}
+
+function getSheetOverrideValue(project, teamIdx) {
+  const ov = project?.sheetOverrides?.[teamIdx];
+  if (!ov || !ov.paper || !ov.mapPrintMode) return 'default';
+  return `${ov.paper}|${ov.mapPrintMode}`;
+}
+
+function formatSheetSpec(paper, mapPrintMode) {
+  const p = paper || 'A4';
+  const m = PRINT_MODE_LABELS[mapPrintMode || 'grayscale'] || 'Šedotónová';
+  return `${p} · ${m}`;
+}
+
 /**
  * Získání nastavení vyhodnocení s výchozími hodnotami z DEFAULT_OPTS
  */
 function getEvalOpts(project) {
   const p = project.evalOpts || {};
+  const isColorMap = project.mapPrintMode === 'color' || project.mapPrintMode === 'colorFaded';
+  const defMinChroma = isColorMap ? 18 : DEFAULT_OPTS.minChroma;
+  const defMaxDist = isColorMap ? 36 : DEFAULT_OPTS.maxDist;
   return {
     ...DEFAULT_OPTS,
     tolM: Number.isFinite(p.tolM) ? p.tolM : DEFAULT_OPTS.tolM,
     maxTolM: Number.isFinite(p.maxTolM) ? p.maxTolM : DEFAULT_OPTS.maxTolM,
     wrongPenalty: Number.isFinite(p.wrongPenalty) ? p.wrongPenalty : DEFAULT_OPTS.wrongPenalty,
     stealthRefTracking: Number.isFinite(p.stealthRefTracking) ? p.stealthRefTracking : DEFAULT_OPTS.stealthRefTracking,
-    minChroma: Number.isFinite(p.minChroma) ? p.minChroma : DEFAULT_OPTS.minChroma,
-    maxDist: Number.isFinite(p.maxDist) ? p.maxDist : DEFAULT_OPTS.maxDist,
+    minChroma: Number.isFinite(p.minChroma) ? p.minChroma : defMinChroma,
+    maxDist: Number.isFinite(p.maxDist) ? p.maxDist : defMaxDist,
     minArea: Number.isFinite(p.minArea) ? p.minArea : DEFAULT_OPTS.minArea,
     allowedGapMin: Number.isFinite(p.allowedGapMin) ? p.allowedGapMin : 5,
     penaltyPerMin: Number.isFinite(p.penaltyPerMin) ? p.penaltyPerMin : 0,
   };
+}
+
+/**
+ * Načte data URL obrázku do RGBA ImageData o zadaných rozměrech.
+ */
+async function decodeDataUrlToRgba(dataUrl, targetW, targetH, applyFaded = false) {
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Nepodařilo se dekódovat referenční mapu.'));
+    el.src = dataUrl;
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetW;
+  canvas.height = targetH;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, targetW, targetH);
+  ctx.drawImage(img, 0, 0, targetW, targetH);
+
+  const imgData = ctx.getImageData(0, 0, targetW, targetH);
+  if (applyFaded) {
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      d[i] = Math.round(gray + 0.6 * (d[i] - gray));
+      d[i + 1] = Math.round(gray + 0.6 * (d[i + 1] - gray));
+      d[i + 2] = Math.round(gray + 0.6 * (d[i + 2] - gray));
+    }
+  }
+  return { width: targetW, height: targetH, data: imgData.data };
+}
+
+/**
+ * Připraví referenční obrázek čisté barevné mapy pro odečítání podkladu.
+ * Pro šedotónovou mapu vrací vždy null (stávající chování zůstává beze změny).
+ */
+async function buildRefMapImageData(effectiveProject, ppm = DEFAULT_OPTS.ppm, baseProject = null) {
+  const printMode = effectiveProject?.mapPrintMode || 'grayscale';
+  const isColorMap = printMode === 'color' || printMode === 'colorFaded';
+  if (!isColorMap || !effectiveProject?.map) return null;
+
+  const layout = layoutForProject(effectiveProject);
+  const mapW = Math.max(1, Math.round(layout.mapRect.w * ppm));
+  const mapH = Math.max(1, Math.round(layout.mapRect.h * ppm));
+
+  const m = effectiveProject.map;
+  const sameAsBaseMode = !baseProject || (baseProject.mapPrintMode || 'grayscale') === printMode;
+  const cacheKey = `${printMode}|${m.kind}|${m.tileUrl || ''}|${JSON.stringify(m.georef || null)}|${sameAsBaseMode && m.renderedDataUrl ? m.renderedDataUrl.length : 0}|${m.imageDataUrl ? m.imageDataUrl.length : 0}|${mapW}x${mapH}`;
+  if (cachedRefMapKey === cacheKey && cachedRefMapData) {
+    return cachedRefMapData;
+  }
+
+  try {
+    let refData = null;
+    if (sameAsBaseMode && m.renderedDataUrl) {
+      refData = await decodeDataUrlToRgba(m.renderedDataUrl, mapW, mapH, false);
+    } else if (m.kind === 'tiles' && m.georef) {
+      const dataUrl = await renderMapToCanvas(m, printMode);
+      if (dataUrl) {
+        if (sameAsBaseMode) m.renderedDataUrl = dataUrl;
+        refData = await decodeDataUrlToRgba(dataUrl, mapW, mapH, false);
+      }
+    } else if (m.kind === 'image' && m.imageDataUrl) {
+      refData = await decodeDataUrlToRgba(m.imageDataUrl, mapW, mapH, printMode === 'colorFaded');
+    }
+
+    if (refData) {
+      cachedRefMapKey = cacheKey;
+      cachedRefMapData = refData;
+    }
+    return refData;
+  } catch (err) {
+    console.warn('Nepodařilo se připravit referenční barevnou mapu:', err);
+    return null;
+  }
 }
 
 /**
@@ -165,6 +290,9 @@ function persistResults(project, sheetResults, tracks, evalOpts, saveProject) {
     if (res) {
       sheetsData[i] = {
         team: res.team,
+        usedRefMap: Boolean(res.usedRefMap),
+        sheetPaper: res.layout?.paper || res.sheetPaper || null,
+        sheetPrintMode: res.sheetPrintMode || null,
         warnings: res.warnings || [],
         registration: res.registration ? {
           markersCount: res.registration.markers ? res.registration.markers.length : 0,
@@ -676,6 +804,9 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
         statusBadgeHtml = `<span class="sheet-status-badge sheet-status-done">Vyhodnoceno</span>`;
       }
 
+      const currentOverrideVal = getSheetOverrideValue(project, teamIdx);
+      const defaultSpecLabel = formatSheetSpec(project.paper, project.mapPrintMode);
+
       card.innerHTML = `
         <div class="sheet-card-header">
           <div class="sheet-card-title">
@@ -687,11 +818,15 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
           <div>${statusBadgeHtml}</div>
         </div>
 
-        <div class="sheet-upload-area">
+        <div class="sheet-upload-area" style="flex-wrap:wrap;">
           <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
             ${isDone ? 'Změnit fotku' : 'Vybrat / vyfotit arch'}
             <input type="file" accept="image/*" class="file-input-hidden single-team-upload-input" data-team="${teamIdx}" />
           </label>
+          <select class="form-control single-team-sheet-override" data-team="${teamIdx}" aria-label="Typ vytištěného archu" title="Zvolte jiný formát/barevnost, pokud tým odevzdal záložní arch (např. černobílou A4 místo barevné A3)" style="width:auto; min-width:170px; padding:4px 8px; font-size:12px; height:32px;">
+            <option value="default" ${currentOverrideVal === 'default' ? 'selected' : ''}>Výchozí (${escapeHtml(defaultSpecLabel)})</option>
+            ${SHEET_OVERRIDE_PRESETS.map(p => `<option value="${p.value}" ${currentOverrideVal === p.value ? 'selected' : ''}>${escapeHtml(p.label)}</option>`).join('')}
+          </select>
           ${hasPhoto ? `<span style="font-size:12px; color:var(--success); font-weight:600;">Fotka načtena</span>` : ''}
           ${isDone && !hasPhoto ? `<span style="font-size:12px; color:var(--text-muted);">(Výsledky načteny z minula)</span>` : ''}
         </div>
@@ -724,10 +859,14 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
           const markersCnt = res.registration.markers ? res.registration.markers.length : res.registration.markersCount || 0;
           const rmsMm = Number(res.registration.rmsMm || 0).toFixed(2);
           const pxPerMm = res.registration.pxPerMm ? `${Number(res.registration.pxPerMm).toFixed(1)} px/mm` : '';
+          const usedPaper = res.layout?.paper || res.sheetPaper || project.paper || 'A4';
+          const usedMode = res.sheetPrintMode || project.mapPrintMode || 'grayscale';
           regInfo.innerHTML = `
+            <span>Arch: <strong>${escapeHtml(formatSheetSpec(usedPaper, usedMode))}</strong></span>
             <span>Značky: <strong>${markersCnt} z 8</strong></span>
             <span>Chyba registrace: <strong>${rmsMm} mm</strong></span>
             ${pxPerMm ? `<span>Měřítko fotky: <strong>${pxPerMm}</strong></span>` : ''}
+            ${res.usedRefMap ? `<span>Korekce barevné mapy: <strong>aktivní</strong></span>` : ''}
           `;
           detailsWrap.appendChild(regInfo);
         }
@@ -902,7 +1041,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
         <div class="form-group">
           <label class="form-label" for="eval-opt-minchroma">Minimální sytost barvy (minChroma)</label>
           <input type="number" id="eval-opt-minchroma" class="form-control" value="${evalOpts.minChroma}" min="1" max="60" step="1" />
-          <span style="font-size:11px; color:var(--text-muted);">Práh sytosti v Lab: mapa je šedotónová, menší hodnoty berou i šedé.</span>
+          <span style="font-size:11px; color:var(--text-muted);">Práh sytosti v Lab (výchozí 14 pro šedotónovou, 18 pro barevnou mapu).</span>
         </div>
         <div class="form-group">
           <label class="form-label" for="eval-opt-maxdist">Max. barevná vzdálenost (maxDist)</label>
@@ -937,6 +1076,30 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
   }
 
   /**
+   * Vyhodnotí fotku archu s respektem k per-týmovému přepisu formátu/barevnosti (např. záložní A4 ČB v projektu s A3 barevnou).
+   */
+  async function evaluatePhotoWithOverride(photo, project, tracks, hintTeamIdx = null, forceSheetTeam = null) {
+    const eff0 = hintTeamIdx != null ? getEffectiveProjectForTeam(project, hintTeamIdx) : project;
+    const opts0 = getEvalOpts(eff0);
+    const ref0 = await buildRefMapImageData(eff0, opts0.ppm, project);
+    let result = evaluateSheet({ photo, project: eff0, tracks, sheetTeam: forceSheetTeam, refMap: ref0, opts: opts0 });
+    result.sheetPrintMode = eff0.mapPrintMode || 'grayscale';
+
+    if (forceSheetTeam == null) {
+      const actualEff = getEffectiveProjectForTeam(project, result.team);
+      const changedPaper = (actualEff.paper || 'A4') !== (eff0.paper || 'A4');
+      const changedMode = (actualEff.mapPrintMode || 'grayscale') !== (eff0.mapPrintMode || 'grayscale');
+      if (changedPaper || changedMode) {
+        const actualOpts = getEvalOpts(actualEff);
+        const actualRef = await buildRefMapImageData(actualEff, actualOpts.ppm, project);
+        result = evaluateSheet({ photo, project: actualEff, tracks, sheetTeam: result.team, refMap: actualRef, opts: actualOpts });
+        result.sheetPrintMode = actualEff.mapPrintMode || 'grayscale';
+      }
+    }
+    return result;
+  }
+
+  /**
    * Zpracování souboru pro konkrétní kartu týmu
    */
   async function processFileForTeam(file, expectedTeamIdx) {
@@ -954,7 +1117,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
 
     try {
       const photo = await loadImageDataFromFile(file, 3000);
-      const result = evaluateSheet({ photo, project, tracks, opts: evalOpts });
+      const result = await evaluatePhotoWithOverride(photo, project, tracks, expectedTeamIdx, null);
       const actualTeam = result.team;
 
       // Uložení fotky a výsledku
@@ -986,6 +1149,41 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
   }
 
   /**
+   * Okamžité přepočítání jednoho týmu z paměti (např. po přepnutí formátu archu A3 barevná ↔ A4 ČB)
+   */
+  async function recalculateSingleTeam(teamIdx) {
+    const photo = photosMap.get(teamIdx);
+    if (!photo) return;
+    const project = getProject();
+    const evalOpts = getEvalOpts(project);
+    const { tracks } = buildTracks(project, evalOpts);
+
+    cardStatus[teamIdx] = 'processing';
+    delete cardErrors[teamIdx];
+    render();
+    await new Promise(r => setTimeout(r, 40));
+
+    try {
+      const result = await evaluatePhotoWithOverride(photo, project, tracks, teamIdx, teamIdx);
+      inMemoryResults.set(teamIdx, result);
+      cardStatus[teamIdx] = 'done';
+      delete cardErrors[teamIdx];
+
+      const sheetResultsMap = {};
+      for (let i = 0; i < project.teams.length; i++) {
+        if (inMemoryResults.has(i)) sheetResultsMap[i] = inMemoryResults.get(i);
+      }
+      persistResults(project, sheetResultsMap, tracks, evalOpts, saveProject);
+    } catch (err) {
+      cardStatus[teamIdx] = 'error';
+      cardErrors[teamIdx] = err.message || 'Chyba při přepočtu archu.';
+      console.error('recalculateSingleTeam error:', err);
+    } finally {
+      render();
+    }
+  }
+
+  /**
    * Hromadné zpracování více vybraných souborů
    */
   async function processBatchFiles(files) {
@@ -1006,7 +1204,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
 
       try {
         const photo = await loadImageDataFromFile(f, 3000);
-        const result = evaluateSheet({ photo, project, tracks, opts: evalOpts });
+        const result = await evaluatePhotoWithOverride(photo, project, tracks, null, null);
         const t = result.team;
 
         photosMap.set(t, photo);
@@ -1054,7 +1252,7 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
       await new Promise(r => setTimeout(r, 40));
 
       try {
-        const result = evaluateSheet({ photo, project, tracks, sheetTeam: teamIdx, opts: evalOpts });
+        const result = await evaluatePhotoWithOverride(photo, project, tracks, teamIdx, teamIdx);
         inMemoryResults.set(teamIdx, result);
         cardStatus[teamIdx] = 'done';
         delete cardErrors[teamIdx];
@@ -1115,6 +1313,27 @@ export function mountEvaluate(sectionEl, { getProject, saveProject }) {
         const file = e.target.files && e.target.files[0];
         if (file) {
           processFileForTeam(file, teamIdx);
+        }
+      });
+    });
+
+    // Přepínač typu archu per tým (např. ostrá barevná A3 vs záložní černobílá A4)
+    sectionEl.querySelectorAll('.single-team-sheet-override').forEach(select => {
+      select.addEventListener('change', () => {
+        const teamIdx = Number(select.getAttribute('data-team'));
+        const val = select.value;
+        if (!project.sheetOverrides) project.sheetOverrides = {};
+        if (val === 'default') {
+          delete project.sheetOverrides[teamIdx];
+        } else {
+          const [paper, mapPrintMode] = val.split('|');
+          project.sheetOverrides[teamIdx] = { paper, mapPrintMode };
+        }
+        saveProject(project);
+        if (photosMap.has(teamIdx)) {
+          recalculateSingleTeam(teamIdx);
+        } else {
+          render();
         }
       });
     });

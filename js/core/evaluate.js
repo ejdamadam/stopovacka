@@ -20,8 +20,10 @@ export const DEFAULT_OPTS = {
   jitterRadiusM: 15,    // poloměr potlačení plavání GPS na místě [m]
   stealthRefTracking: 0, // práh stopování pro odemčení utajení (0 = vypnuto, bez krácení)
   stepM: 5,             // krok převzorkování GPX [m]
-  minChroma: 14,        // min. sytost barvy, aby pixel mohl být fixa (mapa je šedotónová)
+  minChroma: 14,        // min. sytost barvy, aby pixel mohl být fixa (šedotónová mapa)
   maxDist: 40,          // max. barevná vzdálenost od kalibrované fixy
+  bgMinDiff: 18,        // min. barevná odchylka od referenční barevné mapy (Lab)
+  bgRadius: 3,          // poloměr okolí [px] pro porovnání s referenční barevnou mapou
   minArea: 12,          // min. velikost souvislé čáry v px (menší = šum)
   mapInsetMm: 1.2,      // okraj mapového pole, který se ignoruje (rámeček)
   maxGapS: 120,         // výpadek GPX: časová mezera [s]
@@ -322,9 +324,10 @@ export function prepareTrack(gpx, project, opts = {}) {
  * @param {object} a.project              projekt (viz app.js)
  * @param {object} a.tracks               {teamIdx: výsledek prepareTrack} – trasy týmů
  * @param {number} [a.sheetTeam]          vynutit tým archu (jinak podle značek)
+ * @param {{width,height,data}} [a.refMap] referenční čistá mapa (RGBA) pro odečtení barevného podkladu
  * @param {object} [a.opts]               přepsání DEFAULT_OPTS
  */
-export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, opts = {} }) {
+export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, refMap = null, opts = {} }) {
   const o = { ...DEFAULT_OPTS, ...opts };
   const layout = layoutForProject(project);
   const georef = georefOf(project);
@@ -364,8 +367,8 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
   const inset = Math.round(o.mapInsetMm * o.ppm);
   const inner = { x: mapPx.x + inset, y: mapPx.y + inset, w: mapPx.w - 2 * inset, h: mapPx.h - 2 * inset };
   const isColorMap = project.mapPrintMode === 'color' || project.mapPrintMode === 'colorFaded';
-  const minChroma = o.minChroma ?? (isColorMap ? 18 : DEFAULT_OPTS.minChroma);
-  const maxDist = o.maxDist ?? (isColorMap ? 36 : DEFAULT_OPTS.maxDist);
+  const minChroma = opts.minChroma ?? (isColorMap ? 18 : DEFAULT_OPTS.minChroma);
+  const maxDist = opts.maxDist ?? (isColorMap ? 36 : DEFAULT_OPTS.maxDist);
 
   // Varování při málo syté/tmavé fixe v kalibračním poli (oprava B.6)
   for (const x of validInks) {
@@ -375,7 +378,15 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
     }
   }
 
-  const labels = classifyInks(rect, inner, validInks.map(x => ({ lab: x.ink.lab })), { minChroma, maxDist });
+  const useRefMap = Boolean(isColorMap && refMap && refMap.width > 0 && refMap.height > 0);
+  if (isColorMap && !useRefMap) {
+    warnings.push('Barevná mapa: nepodařilo se načíst referenční podklad mapy pro odečtení barev – barevné prvky mapy se mohou plést s fixou.');
+  }
+
+  const classifyOpts = useRefMap
+    ? { minChroma, maxDist, refMap, refRect: mapPx, bgMinDiff: o.bgMinDiff, bgRadius: o.bgRadius }
+    : { minChroma, maxDist };
+  const labels = classifyInks(rect, inner, validInks.map(x => ({ lab: x.ink.lab })), classifyOpts);
 
   // 5) extrakce masek a porovnání s GPX pro každý cizí tým
   const ext = mapExtentMeters(georef);
@@ -433,7 +444,7 @@ export function evaluateSheet({ photo, project, tracks = {}, sheetTeam = null, o
 
   return {
     team: reg.team, layout, ppm: o.ppm, registration: reg, white, rect, mapPx, mPerPx,
-    perTeam, warnings,
+    usedRefMap: useRefMap, perTeam, warnings,
   };
 }
 

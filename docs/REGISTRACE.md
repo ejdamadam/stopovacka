@@ -61,15 +61,18 @@ V dolním pásu archu má tým předkreslené rámečky pro každý cizí tým:
 
 ## 4. Klasifikace barevných čar v mapě
 
-Mapa je tištěná výhradně **šedotónově**, což znamená, že veškerá kresba mapy má nízkou sytost ($\text{Chroma} \approx 0$).
-Barevné čáry fixy mají naopak vyšší sytost.
+Aplikace podporuje jak **šedotónový** tisk mapy, tak **barevný** (`color` / `colorFaded`):
 
 1. Pro každý pixel mapového pole se převede barva sRGB $\to$ CIE Lab (optimalizováno s precomputed lookup table pro linearizaci).
-2. Efektivní práh sytosti se automaticky přizpůsobí nejsvětlejší/nejméně syté kalibrované fixe: $\text{effMinChroma} = \min(\text{minChroma}, \max(6, 0{,}7 \cdot \min_k \text{Chroma}_k))$.
+2. Efektivní práh sytosti se automaticky přizpůsobí nejsvětlejší/nejméně syté kalibrované fixe: $\text{effMinChroma} = \min(\text{minChroma}, \max(6, 0{,}7 \cdot \min_k \text{Chroma}_k))$. Výchozí `minChroma` je 14 pro šedotónovou mapu a 18 pro barevnou mapu (`maxDist` je 40 resp. 36).
 3. Spočítá se vážená barevná vzdálenost ke každé kalibrované fixe:
    $$d = \sqrt{(0.5 \cdot \Delta L)^2 + \Delta a^2 + \Delta b^2}$$
    *(Váha světlosti $L$ je snížena na polovinu, protože sytost a odstín fixy jsou stabilnější než kolísání přítlaku a stínování).*
-4. Pokud $\min(d) \le \text{maxDist}$ (výchozí 40; pro méně syté pixely pod `minChroma` přísněji $0{,}65 \cdot \text{maxDist}$), pixel je přiřazen příslušné fixe.
+4. Pokud $\min(d) \le \text{maxDist}$ (pro méně syté pixely pod `minChroma` přísněji $0{,}65 \cdot \text{maxDist}$), pixel je kandidátem pro příslušnou fixu.
+5. **Korekce barevné mapy (odečítání referenčního podkladu):** Pouze v režimech `color` a `colorFaded` se kandidátní pixely porovnají s čistou digitální referenční mapou v lokálním okolí `bgRadius` (výchozí 3 px $\approx 0{,}75\text{ mm}$, toleruje drobný posun tisku/registrace). Pixel je vyřazen jako součást mapy, pokud v tomto okolí existuje pixel referenční mapy, který:
+   - má malou váženou vzdálenost v Lab ($\sqrt{(0.7\Delta L)^2 + \Delta a^2 + \Delta b^2} \le \text{bgMinDiff}$, výchozí 18), **nebo**
+   - představuje barevný prvek mapy ($\text{Chroma}_{\text{ref}} \ge 8$) se shodným odstínem a nižší/podobnou sytostí (tisková gamutová komprese $t \in [0{,}30; 1{,}25]$ bez výrazného ztmavení oproti podkladu).
+   Tím se spolehlivě potlačí barevné lesy, řeky, silnice i turistické značky, zatímco sytější nebo tmavší čára fixy nakreslená přes ně zůstane zachována. Šedotónový režim tento krok vůbec nepoužívá.
 
 ---
 
